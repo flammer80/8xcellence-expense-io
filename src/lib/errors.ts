@@ -1,6 +1,12 @@
+import { randomUUID } from 'node:crypto'
+
+/**
+ * Réponse 500 générique. Le détail de l'erreur (message, stack, SQL) reste
+ * dans les logs serveur ; le client ne reçoit qu'un id de corrélation pour
+ * retrouver l'occurrence (SEC-07).
+ */
 export function respondError(error: unknown): Response {
-  console.error(error)
-  const message = error instanceof Error ? error.message : String(error)
-  const stack = error instanceof Error ? error.stack : undefined
-  return Response.json({ error: message, stack }, { status: 500 })
+  const correlationId = randomUUID()
+  console.error(`[error] correlationId=${correlationId}`, error)
+  return Response.json({ error: 'Internal Server Error', correlationId }, { status: 500 })
 }

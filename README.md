@@ -50,7 +50,28 @@ seulement via le script de seed ou directement en base.
 
 ## Variables d'environnement
 
-Voir `.env.example`.
+Voir `.env.example`. `AUTH_SECRET` est obligatoire : l'application refuse de
+démarrer sans lui, ou avec la valeur d'exemple. `make env` (appelé par
+`make dev`) en génère un.
+
+## Tests
+
+```bash
+make test                 # démarre Postgres si besoin, puis lance tous les tests
+npm run test:unit         # tests sans base de données
+npm run test:integration  # route handlers contre la base expense_io_test
+```
+
+Les tests d'intégration recréent la base `expense_io_test` (jamais la base de
+dev) sur le Postgres du `docker-compose` ; ils nécessitent donc Docker. Une
+autre base peut être visée avec `TEST_DATABASE_URL` (son nom doit finir par
+`_test`). La CI GitHub Actions lance lint, typecheck et tests à chaque push.
+
+- `tests/integration/` fige le comportement actuel des routes (contrat à préserver) ;
+- `tests/security/` contient un test par faille de l'audit (`docs/audit/audit-v2.md`).
+
+Stratégie et choix : `docs/adr/0001-strategie-de-tests.md`. Changements de
+comportement : `CHANGELOG.md`.
 
 ## Autres commandes
 

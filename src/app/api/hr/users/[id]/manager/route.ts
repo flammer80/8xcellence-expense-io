@@ -32,15 +32,29 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       if (managerId === id) {
         return Response.json({ error: 'Invalid manager' }, { status: 409 })
       }
-      // Le manager choisi doit avoir le rôle manager — l'appartenance à la
-      // même entreprise que la cible est déjà garantie par l'annuaire
-      // (GET /api/hr/users), qui ne liste que des managers de l'entreprise
-      // de l'appelant.
+      // Le manager choisi doit avoir le rôle manager et appartenir à la même
+      // entreprise : l'annuaire de l'UI ne protège pas l'API (SEC-05).
       const managerResult = await getPool().query(
-        `SELECT id FROM users WHERE id = $1 AND role = 'manager'`,
-        [managerId]
+        `SELECT id FROM users WHERE id = $1 AND role = 'manager' AND company_id = $2`,
+        [managerId, companyId]
       )
       if (!managerResult.rows[0]) {
+        return Response.json({ error: 'Invalid manager' }, { status: 409 })
+      }
+
+      // Refuse tout cycle : la cible ne doit pas figurer parmi les
+      // supérieurs du manager choisi. UNION (et non UNION ALL) garantit que
+      // la remontée s'arrête même si un cycle existe déjà en base.
+      const cycleResult = await getPool().query(
+        `WITH RECURSIVE chain AS (
+           SELECT id, manager_id FROM users WHERE id = $1
+           UNION
+           SELECT u.id, u.manager_id FROM users u JOIN chain c ON u.id = c.manager_id
+         )
+         SELECT 1 FROM chain WHERE id = $2 LIMIT 1`,
+        [managerId, id]
+      )
+      if (cycleResult.rows[0]) {
         return Response.json({ error: 'Invalid manager' }, { status: 409 })
       }
     }

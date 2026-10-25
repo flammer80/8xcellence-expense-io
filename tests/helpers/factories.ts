@@ -1,0 +1,107 @@
+import { getPool } from '@/lib/db'
+
+export type Role = 'employee' | 'manager' | 'hr_admin'
+
+export interface TestUser {
+  id: string
+  email: string
+  role: Role
+  companyId: string
+}
+
+export interface TestNote {
+  id: string
+  userId: string
+  receiptKey: string
+}
+
+let sequence = 0
+const next = () => ++sequence
+
+/** Vide les trois tables entre deux tests (base de test uniquement). */
+export async function resetDatabase(): Promise<void> {
+  await getPool().query('TRUNCATE expense_notes, users, companies RESTART IDENTITY CASCADE')
+}
+
+export async function createCompany(name = `company-${next()}`): Promise<string> {
+  const result = await getPool().query<{ id: string }>(
+    'INSERT INTO companies (name, email_domain) VALUES ($1, $2) RETURNING id',
+    [name, `${name}.test`]
+  )
+  return result.rows[0].id
+}
+
+export async function createUser(
+  companyId: string,
+  role: Role,
+  options: { managerId?: string | null; name?: string } = {}
+): Promise<TestUser> {
+  const n = next()
+  const email = `${role}-${n}@test.local`
+  const result = await getPool().query<{ id: string }>(
+    `INSERT INTO users (company_id, name, email, password_hash, role, manager_id)
+     VALUES ($1, $2, $3, 'not-a-real-hash', $4, $5) RETURNING id`,
+    [companyId, options.name ?? `${role} ${n}`, email, role, options.managerId ?? null]
+  )
+  return { id: result.rows[0].id, email, role, companyId }
+}
+
+export async function setManager(userId: string, managerId: string | null): Promise<void> {
+  await getPool().query('UPDATE users SET manager_id = $1 WHERE id = $2', [managerId, userId])
+}
+
+export async function createNote(
+  userId: string,
+  options: {
+    status?: 'pending' | 'approved' | 'rejected'
+    amount?: number
+    createdAt?: string
+    description?: string
+  } = {}
+): Promise<TestNote> {
+  const n = next()
+  const receiptKey = `receipts/test-${n}.png`
+  const result = await getPool().query<{ id: string }>(
+    `INSERT INTO expense_notes (user_id, amount, expense_date, description, receipt_key, status, created_at)
+     VALUES ($1, $2, '2026-10-01', $3, $4, $5, COALESCE($6::timestamptz, now()))
+     RETURNING id`,
+    [
+      userId,
+      options.amount ?? 10,
+      options.description ?? `note ${n}`,
+      receiptKey,
+      options.status ?? 'pending',
+      options.createdAt ?? null,
+    ]
+  )
+  return { id: result.rows[0].id, userId, receiptKey }
+}
+
+export async function getNoteStatus(noteId: string): Promise<string> {
+  const result = await getPool().query<{ status: string }>(
+    'SELECT status FROM expense_notes WHERE id = $1',
+    [noteId]
+  )
+  return result.rows[0].status
+}
+
+export async function getManagerId(userId: string): Promise<string | null> {
+  const result = await getPool().query<{ manager_id: string | null }>(
+    'SELECT manager_id FROM users WHERE id = $1',
+    [userId]
+  )
+  return result.rows[0].manager_id
+}
+
+/**
+ * Une entreprise complète : un RH, un manager racine, un manager rattaché au
+ * manager racine, et un employé rattaché à ce dernier.
+ */
+export async function createOrg(name?: string) {
+  const companyId = await createCompany(name)
+  const hr = await createUser(companyId, 'hr_admin')
+  const rootManager = await createUser(companyId, 'manager')
+  const manager = await createUser(companyId, 'manager', { managerId: rootManager.id })
+  const employee = await createUser(companyId, 'employee', { managerId: manager.id })
+  return { companyId, hr, rootManager, manager, employee }
+}

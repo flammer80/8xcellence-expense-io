@@ -3,7 +3,7 @@ SHELL := /bin/bash
 
 COMPOSE := docker compose
 
-.PHONY: help install env up down restart logs migrate ensure-bucket seed dev build start lint typecheck clean
+.PHONY: help install env up down restart logs migrate ensure-bucket seed dev build start lint typecheck test clean
 
 help: ## Affiche cette aide
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -13,6 +13,10 @@ install: ## Installe les dépendances npm
 
 env: ## Crée .env depuis .env.example si absent, génère AUTH_SECRET si besoin
 	@if [ ! -f .env ]; then cp .env.example .env; echo ".env créé depuis .env.example"; fi
+	@if grep -q '^AUTH_SECRET=changeme' .env; then \
+		sed -i.bak "s|^AUTH_SECRET=.*|AUTH_SECRET=$$(openssl rand -base64 32)|" .env && rm -f .env.bak; \
+		echo "AUTH_SECRET généré dans .env"; \
+	fi
 
 up: env ## Démarre Postgres + LocalStack (Docker) et attend qu'ils soient prêts
 	$(COMPOSE) up -d
@@ -56,6 +60,9 @@ lint: ## Lint du code
 
 typecheck: ## Vérifie les types
 	npm run typecheck
+
+test: up ## Lance tous les tests (unitaires + intégration sur la base expense_io_test)
+	npm test
 
 clean: ## Arrête Docker et supprime les volumes — efface les données locales (Postgres/LocalStack)
 	$(COMPOSE) down -v

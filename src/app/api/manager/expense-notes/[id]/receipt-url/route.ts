@@ -1,5 +1,5 @@
 import { auth } from '@/lib/auth'
-import { getPool } from '@/lib/db'
+import { withUserScope } from '@/lib/db'
 import { respondError } from '@/lib/errors'
 import { getReceiptUrl } from '@/lib/storage'
 
@@ -11,11 +11,17 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     }
     const { id } = await params
 
-    // La note existe forcément dans la liste des notes en attente du
-    // manager avant qu'il n'en consulte le reçu — pas besoin de revérifier
-    // le rattachement ici.
-    const result = await getPool().query('SELECT receipt_key FROM expense_notes WHERE id = $1', [id])
-    const note = result.rows[0]
+    // Le rattachement est revérifié ici : un id de note ne prouve rien sur
+    // le droit d'en voir le reçu (SEC-04). Même filtre que approve/reject.
+    const note = await withUserScope(session.user.id, async (client) => {
+      const result = await client.query(
+        `SELECT en.receipt_key FROM expense_notes en
+         JOIN users u ON u.id = en.user_id
+         WHERE en.id = $1 AND u.manager_id = $2`,
+        [id, session.user.id]
+      )
+      return result.rows[0]
+    })
     if (!note) {
       return Response.json({ error: 'Not found' }, { status: 404 })
     }
