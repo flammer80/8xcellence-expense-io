@@ -1,4 +1,4 @@
-import type { NotificationPort } from '@/ports/NotificationPort'
+import type { NotificationPort } from '@/application/ports/NotificationPort'
 
 export class ConsoleNotificationAdapter implements NotificationPort {
   async notifyDecision(

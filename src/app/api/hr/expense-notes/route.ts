@@ -1,19 +1,8 @@
 import { auth } from '@/lib/auth'
 import { withUserScope } from '@/lib/db'
 import { respondError } from '@/lib/errors'
-
-function toExpenseNote(row: Record<string, unknown>) {
-  return {
-    id: row.id,
-    userId: row.user_id,
-    amount: Number.parseFloat(row.amount as string),
-    expenseDate: row.expense_date,
-    description: row.description,
-    receiptKey: row.receipt_key,
-    status: row.status,
-    createdAt: new Date(row.created_at as string).toISOString(),
-  }
-}
+import { toExpenseNote } from '@/infrastructure/postgres/expenseNoteRow'
+import { toExpenseNoteDto } from '@/interface/http/expenseNoteDto'
 
 export async function GET() {
   try {
@@ -31,7 +20,7 @@ export async function GET() {
          ORDER BY en.created_at ASC`,
         [session.user.id]
       )
-      return Response.json(result.rows.map(toExpenseNote))
+      return Response.json(result.rows.map((row) => toExpenseNoteDto(toExpenseNote(row))))
     })
   } catch (error) {
     return respondError(error)

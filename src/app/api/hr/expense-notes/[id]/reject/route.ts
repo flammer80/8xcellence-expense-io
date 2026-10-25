@@ -1,6 +1,8 @@
 import { auth } from '@/lib/auth'
 import { withUserScope } from '@/lib/db'
 import { respondError } from '@/lib/errors'
+import { toExpenseNote } from '@/infrastructure/postgres/expenseNoteRow'
+import { toExpenseNoteDto } from '@/interface/http/expenseNoteDto'
 
 export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -31,16 +33,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
         [id]
       )
       const note = updated.rows[0]
-      return Response.json({
-        id: note.id,
-        userId: note.user_id,
-        amount: Number.parseFloat(note.amount),
-        expenseDate: note.expense_date,
-        description: note.description,
-        receiptKey: note.receipt_key,
-        status: note.status,
-        createdAt: new Date(note.created_at).toISOString(),
-      })
+      return Response.json(toExpenseNoteDto(toExpenseNote(note)))
     })
   } catch (error) {
     return respondError(error)
