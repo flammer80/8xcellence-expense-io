@@ -1,6 +1,7 @@
 import NextAuth from 'next-auth'
 import Credentials from 'next-auth/providers/credentials'
 import bcrypt from 'bcryptjs'
+import type { UserRole } from '@/domain/User'
 import { getPool } from '@/lib/db'
 
 // Valeurs à ne jamais accepter comme secret de signature : celle d'exemple de
@@ -49,7 +50,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           id: string
           email: string
           password_hash: string
-          role: 'employee' | 'manager' | 'hr_admin'
+          role: UserRole
         }>('SELECT id, email, password_hash, role FROM users WHERE email = $1', [email])
         const user = result.rows[0]
         if (!user) return null
@@ -72,7 +73,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async session({ session, token }) {
       if (session.user) {
         session.user.id = token.id as string
-        session.user.role = token.role as 'employee' | 'manager' | 'hr_admin'
+        session.user.role = token.role as UserRole
       }
       return session
     },
