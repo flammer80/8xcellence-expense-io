@@ -15,6 +15,13 @@ Ces comportements étaient eux-mêmes des failles : ils sont corrigés malgré l
 - **`PUT /api/hr/users/{id}/manager`** (SEC-05) : répond **409** `{ "error": "Invalid manager" }` si le manager choisi appartient à une autre entreprise ou si le rattachement créerait un cycle hiérarchique (A → B → A, ou plus long).
 - **Erreurs 500** (SEC-07) : le corps devient `{ "error": "Internal Server Error", "correlationId": "<uuid>" }`. Le message, la stack et le SQL ne sont plus renvoyés au client ; ils sont journalisés côté serveur avec le même `correlationId`.
 
+### Architecture (sans changement de l'API)
+
+- Noyau hexagonal (`docs/adr/0002-architecture-hexagonale.md`). `GET /api/expense-notes` passe par le cas d'usage `ListMyExpenseNotes`. Les 7 routes qui renvoient des notes partagent un seul mapping. Réponses, codes et tri sont inchangés.
+- Configuration S3 unique (`src/infrastructure/s3/s3-config.ts`) : `npm run ensure-bucket` respecte désormais `S3_FORCE_PATH_STYLE`, comme l'application et le seed. Avant ce changement, il forçait le style « chemin ».
+- `package.json` déclare `"type": "module"`.
+
 ### Outillage
 
+- Garde-fou d'architecture : `npm run lint` échoue si `src/domain/` importe hors du domaine, ou si `src/application/` importe l'infrastructure ou un framework.
 - Tests Vitest (`npm test`, `npm run test:unit`, `npm run test:integration`, `make test`) et CI GitHub Actions (lint, typecheck, tests). Voir `docs/adr/0001-strategie-de-tests.md`.

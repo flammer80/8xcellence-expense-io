@@ -58,7 +58,7 @@ démarrer sans lui, ou avec la valeur d'exemple. `make env` (appelé par
 
 ```bash
 make test                 # démarre Postgres si besoin, puis lance tous les tests
-npm run test:unit         # tests sans base de données
+npm run test:unit         # domaine, cas d'usage, garde-fou d'architecture (sans base)
 npm run test:integration  # route handlers contre la base expense_io_test
 ```
 
@@ -72,6 +72,24 @@ autre base peut être visée avec `TEST_DATABASE_URL` (son nom doit finir par
 
 Stratégie et choix : `docs/adr/0001-strategie-de-tests.md`. Changements de
 comportement : `CHANGELOG.md`.
+
+## Architecture
+
+Monolithe Next.js en architecture hexagonale ; les dépendances pointent vers
+le domaine (`docs/adr/0002-architecture-hexagonale.md`) :
+
+| Dossier | Rôle |
+|---|---|
+| `src/domain/` | Entités, value objects (`Money`, `ExpenseDate`), erreurs ; aucun import externe |
+| `src/application/` | Cas d'usage (`ListMyExpenseNotes`…) et leurs ports (`application/ports/`) |
+| `src/infrastructure/` | Adaptateurs : Postgres (seul endroit du SQL migré), S3, notifications, en mémoire pour les tests |
+| `src/interface/http/` | DTO et lecture des paramètres HTTP |
+| `src/app/` | Pages et routes Next.js ; une route migrée = session → cas d'usage → réponse |
+| `src/composition.ts` | Racine de composition : relie chaque port à son adaptateur |
+
+`npm run lint` fait respecter ces frontières. Les routes pas encore migrées
+gardent leur SQL ; elles le perdront aux étapes suivantes du plan
+(`docs/audit/audit-v2.md`).
 
 ## Autres commandes
 
