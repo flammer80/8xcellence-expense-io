@@ -4,6 +4,10 @@ import { auth } from '@/lib/auth'
 import { getPool, withUserScope } from '@/lib/db'
 import { respondError } from '@/lib/errors'
 import { receiptKeyFor, uploadReceipt } from '@/lib/storage'
+import { listMyExpenseNotes } from '@/composition'
+import { toExpenseNote } from '@/infrastructure/postgres/expenseNoteRow'
+import { toExpenseNoteDto } from '@/interface/http/expenseNoteDto'
+import { parseExpenseNoteSortParam } from '@/interface/http/expenseNoteSortParam'
 
 const ALLOWED_RECEIPT_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf']
 const MAX_RECEIPT_BYTES = 10 * 1024 * 1024
@@ -15,36 +19,6 @@ const EXTENSION_BY_MIME: Record<string, string> = {
   'application/pdf': '.pdf',
 }
 
-// Tri : ORDER BY n'accepte pas de paramètre lié pour une colonne, donc la
-// clause est reconstruite à partir d'une liste blanche, jamais de la saisie
-// (SEC-01). Les formes acceptées restent celles d'avant : `colonne`,
-// `colonne ASC` ou `colonne DESC`, sans tenir compte de la casse.
-const SORTABLE_COLUMNS = ['created_at', 'expense_date', 'amount', 'status'] as const
-const DEFAULT_SORT = 'created_at DESC'
-
-function toOrderByClause(sort: string | null): string | null {
-  if (!sort) return DEFAULT_SORT
-  const match = /^\s*([a-z_]+)(?:\s+(asc|desc))?\s*$/i.exec(sort)
-  if (!match) return null
-  const column = SORTABLE_COLUMNS.find((candidate) => candidate === match[1].toLowerCase())
-  if (!column) return null
-  const direction = match[2]?.toUpperCase() === 'DESC' ? 'DESC' : 'ASC'
-  return `${column} ${direction}`
-}
-
-function toExpenseNote(row: Record<string, unknown>) {
-  return {
-    id: row.id,
-    userId: row.user_id,
-    amount: Number.parseFloat(row.amount as string),
-    expenseDate: row.expense_date,
-    description: row.description,
-    receiptKey: row.receipt_key,
-    status: row.status,
-    createdAt: new Date(row.created_at as string).toISOString(),
-  }
-}
-
 export async function GET(request: NextRequest) {
   try {
     const session = await auth()
@@ -52,24 +26,19 @@ export async function GET(request: NextRequest) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const url = new URL(request.url)
-    const orderBy = toOrderByClause(url.searchParams.get('sort'))
-    if (!orderBy) {
+    const sort = parseExpenseNoteSortParam(new URL(request.url).searchParams.get('sort'))
+    if (sort === null) {
       return Response.json({ error: 'Invalid sort' }, { status: 400 })
     }
 
-    return withUserScope(session.user.id, async (client) => {
-      const result = await client.query(
-        `SELECT * FROM expense_notes WHERE user_id = $1 ORDER BY ${orderBy}`,
-        [session.user.id]
-      )
-      return Response.json(result.rows.map(toExpenseNote))
-    })
+    const notes = await listMyExpenseNotes.execute({ actorId: session.user.id, sort })
+    return Response.json(notes.map(toExpenseNoteDto))
   } catch (error) {
     return respondError(error)
   }
 }
 
+// POST : pas encore migré ; il le sera avec `SubmitExpenseNote` (étape 4).
 export async function POST(request: NextRequest) {
   try {
     const session = await auth()
@@ -122,7 +91,7 @@ export async function POST(request: NextRequest) {
       [receiptKey, note.id]
     )
 
-    return Response.json(toExpenseNote(updated.rows[0]), { status: 201 })
+    return Response.json(toExpenseNoteDto(toExpenseNote(updated.rows[0])), { status: 201 })
   } catch (error) {
     return respondError(error)
   }

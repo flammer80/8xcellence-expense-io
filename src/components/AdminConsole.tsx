@@ -1,12 +1,13 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import type { UserRole } from '@/domain/User'
 
 interface CompanyUser {
   id: string
   name: string
   email: string
-  role: 'employee' | 'manager'
+  role: Exclude<UserRole, 'hr_admin'>
   managerId: string | null
 }
 

@@ -1,4 +1,8 @@
-export type UserRole = 'employee' | 'manager' | 'hr_admin'
+/** Rôles d'un utilisateur ; même liste que la contrainte `CHECK` de la table `users`. */
+export const USER_ROLES = ['employee', 'manager', 'hr_admin'] as const
+
+/** Seule déclaration du type de rôle dans l'application : les autres modules l'importent. */
+export type UserRole = (typeof USER_ROLES)[number]
 
 export interface UserProps {
   id: string

@@ -1,7 +1,8 @@
+import type { ReceiptStorage } from '@/application/ports/ReceiptStorage'
 import { getReceiptUrl, uploadReceipt } from '@/lib/storage'
-import type { ReceiptStoragePort } from '@/ports/ReceiptStoragePort'
 
-export class S3ReceiptAdapter implements ReceiptStoragePort {
+/** Reçus stockés dans S3 (LocalStack en local), servis par URL pré-signée. */
+export class S3ReceiptStorage implements ReceiptStorage {
   async upload(key: string, body: Buffer, contentType: string): Promise<void> {
     await uploadReceipt(key, body, contentType)
   }

@@ -1,6 +1,7 @@
+import type { UserRole } from '@/domain/User'
 import { getPool } from '@/lib/db'
 
-export type Role = 'employee' | 'manager' | 'hr_admin'
+export type Role = UserRole
 
 export interface TestUser {
   id: string
