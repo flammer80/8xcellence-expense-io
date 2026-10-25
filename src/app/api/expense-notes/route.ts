@@ -15,6 +15,23 @@ const EXTENSION_BY_MIME: Record<string, string> = {
   'application/pdf': '.pdf',
 }
 
+// Tri : ORDER BY n'accepte pas de paramètre lié pour une colonne, donc la
+// clause est reconstruite à partir d'une liste blanche, jamais de la saisie
+// (SEC-01). Les formes acceptées restent celles d'avant : `colonne`,
+// `colonne ASC` ou `colonne DESC`, sans tenir compte de la casse.
+const SORTABLE_COLUMNS = ['created_at', 'expense_date', 'amount', 'status'] as const
+const DEFAULT_SORT = 'created_at DESC'
+
+function toOrderByClause(sort: string | null): string | null {
+  if (!sort) return DEFAULT_SORT
+  const match = /^\s*([a-z_]+)(?:\s+(asc|desc))?\s*$/i.exec(sort)
+  if (!match) return null
+  const column = SORTABLE_COLUMNS.find((candidate) => candidate === match[1].toLowerCase())
+  if (!column) return null
+  const direction = match[2]?.toUpperCase() === 'DESC' ? 'DESC' : 'ASC'
+  return `${column} ${direction}`
+}
+
 function toExpenseNote(row: Record<string, unknown>) {
   return {
     id: row.id,
@@ -36,14 +53,14 @@ export async function GET(request: NextRequest) {
     }
 
     const url = new URL(request.url)
-    // Le tri est construit dynamiquement plutôt que via une valeur liée :
-    // ORDER BY n'accepte pas de paramètre positionnel pour un nom de colonne
-    // en SQL standard, donc ce fragment est concaténé directement.
-    const sort = url.searchParams.get('sort') || 'created_at DESC'
+    const orderBy = toOrderByClause(url.searchParams.get('sort'))
+    if (!orderBy) {
+      return Response.json({ error: 'Invalid sort' }, { status: 400 })
+    }
 
     return withUserScope(session.user.id, async (client) => {
       const result = await client.query(
-        `SELECT * FROM expense_notes WHERE user_id = $1 ORDER BY ${sort}`,
+        `SELECT * FROM expense_notes WHERE user_id = $1 ORDER BY ${orderBy}`,
         [session.user.id]
       )
       return Response.json(result.rows.map(toExpenseNote))
