@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { decideNote, fetchReceiptUrl, type DecisionAction } from './approvalsApi'
 import type { UserRole } from '@/domain/User'
 
 interface CompanyUser {
@@ -91,32 +92,24 @@ export function AdminConsole() {
 
   async function handleViewReceipt(id: string) {
     setNotesError(null)
-    const response = await fetch(`/api/hr/expense-notes/${id}/receipt-url`)
-    if (!response.ok) {
+    const url = await fetchReceiptUrl(id)
+    if (!url) {
       setNotesError('Impossible de récupérer le reçu.')
       return
     }
-    const { url } = await response.json()
     window.open(url, '_blank', 'noopener,noreferrer')
   }
 
-  async function handleDecide(id: string, decision: 'approve' | 'reject') {
+  async function handleDecide(id: string, decision: DecisionAction) {
     setDecidingId(id)
     setNotesError(null)
-    const response = await fetch(`/api/hr/expense-notes/${id}/${decision}`, {
-      method: 'POST',
-    })
+    const failure = await decideNote(id, decision)
     setDecidingId(null)
 
-    if (response.ok) {
-      await loadNotes()
+    if (failure) {
+      setNotesError(failure)
     } else {
-      const body = await response.json().catch(() => null)
-      setNotesError(
-        typeof body?.error === 'string'
-          ? body.error
-          : 'Échec de la décision sur cette note de frais.'
-      )
+      await loadNotes()
     }
   }
 
