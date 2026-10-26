@@ -1,26 +1,18 @@
+import { listPendingApprovals } from '@/composition'
 import { auth } from '@/lib/auth'
-import { withUserScope } from '@/lib/db'
 import { respondError } from '@/lib/errors'
-import { toExpenseNote } from '@/infrastructure/postgres/expenseNoteRow'
 import { toExpenseNoteDto } from '@/interface/http/expenseNoteDto'
+import { requireRole } from '@/interface/http/legacyRoutes'
 
+// File d'attente du manager : notes en attente que l'utilisateur peut trancher,
+// les plus anciennes d'abord (ListPendingApprovals, filtrée par l'ApprovalPolicy).
 export async function GET() {
   try {
-    const session = await auth()
-    if (!session?.user || session.user.role !== 'manager') {
-      return Response.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const guard = requireRole(await auth(), 'manager')
+    if (!guard.ok) return guard.response
 
-    return withUserScope(session.user.id, async (client) => {
-      const result = await client.query(
-        `SELECT en.* FROM expense_notes en
-         JOIN users u ON u.id = en.user_id
-         WHERE u.manager_id = $1 AND en.status = 'pending'
-         ORDER BY en.created_at ASC`,
-        [session.user.id]
-      )
-      return Response.json(result.rows.map((row) => toExpenseNoteDto(toExpenseNote(row))))
-    })
+    const notes = await listPendingApprovals.execute({ actorId: guard.actorId })
+    return Response.json(notes.map(toExpenseNoteDto))
   } catch (error) {
     return respondError(error)
   }

@@ -14,6 +14,9 @@ export interface ExpenseNoteRow {
   receipt_key: string
   status: ExpenseNoteStatus
   created_at: Date
+  decided_by: string | null
+  decided_at: Date | null
+  rejection_reason: string | null
 }
 
 /**
@@ -30,5 +33,8 @@ export function toExpenseNote(row: ExpenseNoteRow): ExpenseNote {
     receiptKey: row.receipt_key,
     status: row.status,
     createdAt: new Date(row.created_at),
+    decidedBy: row.decided_by ?? null,
+    decidedAt: row.decided_at ? new Date(row.decided_at) : null,
+    rejectionReason: row.rejection_reason ?? null,
   })
 }

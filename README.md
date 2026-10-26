@@ -87,6 +87,11 @@ le domaine (`docs/adr/0002-architecture-hexagonale.md`) :
 | `src/app/` | Pages et routes Next.js ; une route migrée = session → cas d'usage → réponse |
 | `src/composition.ts` | Racine de composition : relie chaque port à son adaptateur |
 
+Les règles « qui tranche quelle note » vivent dans un seul fichier,
+`src/domain/ApprovalPolicy.ts` (`docs/adr/0003-politique-d-approbation.md`).
+Le contrat d'API est `docs/api/openapi.yaml` : il est mis à jour avant chaque
+changement de route.
+
 `npm run lint` fait respecter ces frontières. Les routes pas encore migrées
 gardent leur SQL ; elles le perdront aux étapes suivantes du plan
 (`docs/audit/audit-v2.md`).

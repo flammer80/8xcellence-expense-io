@@ -554,7 +554,7 @@ L'objectif : ajouter une fonctionnalité doit être **mécanique et sûr**, en 1
 - [x] Audit v2 rédigé (`docs/audit/audit-v2.md`)
 - [x] Étape 1 — Filet de sécurité (tests, CI, SEC-01/02/04/05/07 ; l'isolation RLS est rattachée à l'étape « schéma et soumission », cf. audit v2 §7)
 - [x] Étape 2 — Noyau hexagonal (route pilote `GET /api/expense-notes`, garde-fou ESLint ; `UnitOfWork`, `UserRepository` et `ReceiptKey` reportés aux étapes 3-4, cf. ADR 0002)
-- [ ] Étape 3 — Workflow d'approbation
+- [x] Étape 3 — Workflow d'approbation (`ApprovalPolicy`, `POST /api/expense-notes/{id}/decision`, anciennes routes gardées en adaptateurs dépréciés, cf. ADR 0003 et 0004)
 - [ ] Étape 4 — Schéma et soumission
 - [ ] Étape 5 — Asynchrone unifié
 - [ ] Étape 6 — Contrat et front

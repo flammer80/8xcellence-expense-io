@@ -106,3 +106,14 @@ export async function createOrg(name?: string) {
   const employee = await createUser(companyId, 'employee', { managerId: manager.id })
   return { companyId, hr, rootManager, manager, employee }
 }
+
+/** Piste d'audit enregistrée pour une note (colonnes ajoutées par la migration 0002). */
+export async function getNoteDecision(noteId: string) {
+  const result = await getPool().query<{
+    status: string
+    decided_by: string | null
+    decided_at: Date | null
+    rejection_reason: string | null
+  }>('SELECT status, decided_by, decided_at, rejection_reason FROM expense_notes WHERE id = $1', [noteId])
+  return result.rows[0]
+}

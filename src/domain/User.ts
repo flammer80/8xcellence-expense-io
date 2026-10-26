@@ -6,12 +6,15 @@ export type UserRole = (typeof USER_ROLES)[number]
 
 export interface UserProps {
   id: string
-  email: string
+  /** Entreprise (tenant) de l'utilisateur : une seule par utilisateur. */
+  companyId: string
   name: string
   role: UserRole
+  /** Manager direct ; `null` pour un manager racine, un employé non rattaché ou un RH. */
   managerId: string | null
 }
 
+/** Utilisateur, vu par les règles métier : qui il est, où il travaille, à qui il rend compte. */
 export class User {
   constructor(private readonly props: UserProps) {}
 
@@ -19,15 +22,31 @@ export class User {
     return this.props.id
   }
 
+  get companyId(): string {
+    return this.props.companyId
+  }
+
+  get name(): string {
+    return this.props.name
+  }
+
   get role(): UserRole {
     return this.props.role
   }
 
-  isRootManager(): boolean {
-    return this.props.role === 'manager' && this.props.managerId === null
+  get managerId(): string | null {
+    return this.props.managerId
   }
 
-  canManage(other: User): boolean {
-    return this.props.role === 'manager' && other.props.managerId === this.props.id
+  hasManager(): boolean {
+    return this.props.managerId !== null
+  }
+
+  isHrAdmin(): boolean {
+    return this.props.role === 'hr_admin'
+  }
+
+  worksFor(companyId: string): boolean {
+    return this.props.companyId === companyId
   }
 }
