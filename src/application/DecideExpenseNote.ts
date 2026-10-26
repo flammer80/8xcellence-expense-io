@@ -1,5 +1,6 @@
 import { ApprovalPolicy } from '@/domain/ApprovalPolicy'
 import { AlreadyDecidedError, InvalidInputError, NotFoundError } from '@/domain/errors'
+import { expenseNoteDecided } from '@/domain/events'
 import type { ExpenseNote, ExpenseNoteDecision } from '@/domain/ExpenseNote'
 import type { ExpenseNoteRepository } from './ports/ExpenseNoteRepository'
 import type { UserRepository } from './ports/UserRepository'
@@ -19,6 +20,9 @@ export interface DecideExpenseNoteInput {
  * Seule implémentation de la décision : la route `POST /api/expense-notes/{id}/decision`
  * et les 4 anciennes routes approve/reject l'appellent toutes.
  *
+ * Émet `ExpenseNoteDecided`, enregistré avec la décision ; une décision
+ * refusée (409 compris) n'émet rien. L'auteur est prévenu par le worker.
+ *
  * Préconditions : `actorId` est authentifié. Son rôle et son rattachement sont
  * relus en base, pas lus dans la session.
  * Erreurs :
@@ -32,7 +36,8 @@ export class DecideExpenseNote {
   constructor(
     private readonly notes: ExpenseNoteRepository,
     private readonly users: UserRepository,
-    private readonly now: () => Date = () => new Date()
+    private readonly now: () => Date = () => new Date(),
+    private readonly newId: () => string = () => crypto.randomUUID()
   ) {}
 
   async execute({ noteId, actorId, decision, reason }: DecideExpenseNoteInput): Promise<ExpenseNote> {
@@ -58,6 +63,6 @@ export class DecideExpenseNote {
       decision === 'approved'
         ? note.approve(actor.id, this.now())
         : note.reject(actor.id, this.now(), reason)
-    return this.notes.saveDecision(decided, actorId)
+    return this.notes.saveDecision(decided, actorId, [expenseNoteDecided(decided, this.newId())])
   }
 }

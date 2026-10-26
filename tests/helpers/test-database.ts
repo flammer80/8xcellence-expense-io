@@ -11,11 +11,15 @@ export const TEST_DATABASE_URL =
  * c'est lui que l'application utilise, donc lui que les tests exercent, pour
  * que les policies RLS s'appliquent vraiment (ADR 0005).
  */
-export const TEST_APP_DATABASE_URL = (() => {
-  const url = new URL(process.env.TEST_APP_DATABASE_URL ?? TEST_DATABASE_URL)
-  if (!process.env.TEST_APP_DATABASE_URL) {
-    url.username = 'expense_app'
-    url.password = 'expense_app'
-  }
+export const TEST_APP_DATABASE_URL = withRole(process.env.TEST_APP_DATABASE_URL, 'expense_app')
+
+/** Même base, avec le rôle du worker de l'outbox `expense_worker` (ADR 0007). */
+export const TEST_WORKER_DATABASE_URL = withRole(process.env.TEST_WORKER_DATABASE_URL, 'expense_worker')
+
+function withRole(override: string | undefined, role: string): string {
+  if (override) return override
+  const url = new URL(TEST_DATABASE_URL)
+  url.username = role
+  url.password = role
   return url.toString()
-})()
+}

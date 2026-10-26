@@ -19,6 +19,12 @@ export async function uploadReceipt(key: string, body: Buffer, contentType: stri
   )
 }
 
+export async function downloadReceipt(key: string): Promise<Buffer> {
+  const response = await getClient().send(new GetObjectCommand({ Bucket: BUCKET, Key: key }))
+  if (!response.Body) throw new Error(`Objet vide : ${key}`)
+  return Buffer.from(await response.Body.transformToByteArray())
+}
+
 export async function deleteReceipt(key: string): Promise<void> {
   await getClient().send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }))
 }

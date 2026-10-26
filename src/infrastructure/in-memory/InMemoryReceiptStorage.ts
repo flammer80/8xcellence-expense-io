@@ -8,6 +8,12 @@ export class InMemoryReceiptStorage implements ReceiptStorage {
     this.files.set(key, { body, contentType })
   }
 
+  async download(key: string): Promise<Buffer> {
+    const file = this.files.get(key)
+    if (!file) throw new Error(`Objet introuvable : ${key}`)
+    return file.body
+  }
+
   async delete(key: string): Promise<void> {
     this.files.delete(key)
   }

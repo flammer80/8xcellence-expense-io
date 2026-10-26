@@ -1,6 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { NotificationsPanel } from '@/components/NotificationsPanel'
+import { suggestFromReceipt } from '@/components/receiptSuggestionApi'
 
 interface ExpenseNote {
   id: string
@@ -110,21 +112,17 @@ export default function ExpensesPage() {
     setError(null)
     setSuggestionNotice(null)
 
-    const formData = new FormData()
-    formData.set('receipt', receipt)
-    const response = await fetch('/api/expense-notes/receipt-suggestion', {
-      method: 'POST',
-      body: formData,
-    })
+    // Analyse asynchrone : 202 puis polling jusqu'au résultat (ADR 0007).
+    const result = await suggestFromReceipt(receipt)
     setExtracting(false)
 
-    if (!response.ok) {
-      setError('Impossible d’analyser ce reçu.')
+    if (!result.ok) {
+      setError(result.message)
       return
     }
-    // Une réponse vide est valide (rien à suggérer) : sans ce message, ça
+    // Une suggestion vide est valide (rien reconnu) : sans ce message, ça
     // ne se distinguerait pas visuellement d'un bouton qui n'a rien fait.
-    const suggestion = (await response.json()) as { amount?: number; expenseDate?: string }
+    const { suggestion } = result
     const foundAmount = typeof suggestion.amount === 'number'
     const foundDate = typeof suggestion.expenseDate === 'string'
     if (foundAmount) {
@@ -247,6 +245,8 @@ export default function ExpensesPage() {
           </button>
         </form>
       </section>
+
+      <NotificationsPanel />
 
       {error && (
         <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">

@@ -2,6 +2,7 @@ import type { ExpenseNoteRepository } from '@/application/ports/ExpenseNoteRepos
 import { AlreadyDecidedError } from '@/domain/errors'
 import type { ExpenseNote } from '@/domain/ExpenseNote'
 import type { ExpenseNoteSort, ExpenseNoteSortField } from '@/domain/ExpenseNoteSort'
+import type { ExpenseNoteEvent } from '@/domain/events'
 
 type Comparator = (a: ExpenseNote, b: ExpenseNote) => number
 
@@ -15,6 +16,8 @@ const COMPARATOR_BY_SORT_FIELD: Record<ExpenseNoteSortField, Comparator> = {
 /** Adaptateur de test : mêmes garanties que le repository Postgres, sans base. */
 export class InMemoryExpenseNoteRepository implements ExpenseNoteRepository {
   private readonly notes = new Map<string, ExpenseNote>()
+  /** Événements enregistrés, comme dans l'outbox : seulement si l'écriture a réussi. */
+  readonly events: ExpenseNoteEvent[] = []
 
   constructor(initialNotes: ExpenseNote[] = []) {
     initialNotes.forEach((note) => this.notes.set(note.id, note))
@@ -28,8 +31,9 @@ export class InMemoryExpenseNoteRepository implements ExpenseNoteRepository {
       .sort((a, b) => sign * compare(a, b))
   }
 
-  async add(note: ExpenseNote): Promise<ExpenseNote> {
+  async add(note: ExpenseNote, _actorId: string, events: ExpenseNoteEvent[]): Promise<ExpenseNote> {
     this.notes.set(note.id, note)
+    this.events.push(...events)
     return note
   }
 
@@ -43,10 +47,11 @@ export class InMemoryExpenseNoteRepository implements ExpenseNoteRepository {
       .sort(COMPARATOR_BY_SORT_FIELD.createdAt)
   }
 
-  async saveDecision(note: ExpenseNote): Promise<ExpenseNote> {
+  async saveDecision(note: ExpenseNote, _actorId: string, events: ExpenseNoteEvent[]): Promise<ExpenseNote> {
     const stored = this.notes.get(note.id)
     if (!stored?.canBeDecided()) throw new AlreadyDecidedError(note.id)
     this.notes.set(note.id, note)
+    this.events.push(...events)
     return note
   }
 }

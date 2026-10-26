@@ -5,6 +5,7 @@ import {
   InvalidInputError,
   NotFoundError,
 } from '@/domain/errors'
+import { currentCorrelationId } from '@/lib/correlation'
 
 // Erreurs au format RFC 9457 (Problem Details) pour les routes du nouveau
 // contrat (docs/api/openapi.yaml, ADR 0004). Les anciennes routes gardent
@@ -69,7 +70,7 @@ export function problemFromError(error: unknown, instance: string): Response {
       errors: [{ pointer: `#/${error.field}`, detail: error.message }],
     })
   }
-  const correlationId = randomUUID()
+  const correlationId = currentCorrelationId() ?? randomUUID()
   console.error(`[error] correlationId=${correlationId}`, error)
   return problem(500, 'internal', 'Erreur interne', { instance, correlationId })
 }

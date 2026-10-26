@@ -22,6 +22,10 @@ env: ## Crée .env depuis .env.example si absent, génère AUTH_SECRET si besoin
 		grep -E '^(DATABASE_URL|MIGRATION_DATABASE_URL)=' .env.example >> .env; \
 		echo ".env mis à jour : rôle applicatif (DATABASE_URL) et rôle propriétaire (MIGRATION_DATABASE_URL)"; \
 	fi
+	@if ! grep -q '^WORKER_DATABASE_URL=' .env; then \
+		grep -E '^WORKER_DATABASE_URL=' .env.example >> .env; \
+		echo ".env mis à jour : rôle du worker de l'outbox (WORKER_DATABASE_URL)"; \
+	fi
 
 up: env ## Démarre Postgres + LocalStack (Docker) et attend qu'ils soient prêts
 	$(COMPOSE) up -d
@@ -45,7 +49,7 @@ logs: ## Suit les logs de Postgres + LocalStack
 migrate: ## Applique les migrations SQL (idempotent)
 	npm run migrate:up
 
-ensure-app-role: ## Ouvre la connexion du rôle applicatif expense_app (mot de passe tiré de DATABASE_URL)
+ensure-app-role: ## Ouvre la connexion des rôles expense_app et expense_worker (mots de passe tirés de DATABASE_URL et WORKER_DATABASE_URL)
 	npm run ensure-app-role
 
 ensure-bucket: ## Crée le bucket S3 "receipts" s'il n'existe pas déjà

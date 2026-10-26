@@ -5,6 +5,7 @@ import { listMyExpenseNotes, submitExpenseNote } from '@/composition'
 import { InvalidInputError } from '@/domain/errors'
 import { toExpenseNoteDto } from '@/interface/http/expenseNoteDto'
 import { parseExpenseNoteSortParam } from '@/interface/http/expenseNoteSortParam'
+import { traced } from '@/interface/http/correlation'
 
 export async function GET(request: NextRequest) {
   try {
@@ -33,7 +34,7 @@ const ERROR_BY_INVALID_FIELD: Record<string, string> = {
   'receipt.size': 'Fichier trop volumineux',
 }
 
-export async function POST(request: NextRequest) {
+export const POST = traced(async function POST(request: NextRequest) {
   try {
     const session = await auth()
     if (!session?.user) {
@@ -72,4 +73,4 @@ export async function POST(request: NextRequest) {
     }
     return respondError(error)
   }
-}
+})

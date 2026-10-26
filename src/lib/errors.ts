@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { currentCorrelationId } from './correlation'
 
 /**
  * Réponse 500 générique. Le détail de l'erreur (message, stack, SQL) reste
@@ -6,7 +7,7 @@ import { randomUUID } from 'node:crypto'
  * retrouver l'occurrence (SEC-07).
  */
 export function respondError(error: unknown): Response {
-  const correlationId = randomUUID()
+  const correlationId = currentCorrelationId() ?? randomUUID()
   console.error(`[error] correlationId=${correlationId}`, error)
   return Response.json({ error: 'Internal Server Error', correlationId }, { status: 500 })
 }

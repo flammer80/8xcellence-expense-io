@@ -1,4 +1,5 @@
 import { NotFoundError } from '@/domain/errors'
+import { expenseNoteSubmitted } from '@/domain/events'
 import { ExpenseDate } from '@/domain/ExpenseDate'
 import { ExpenseNote } from '@/domain/ExpenseNote'
 import { Money } from '@/domain/Money'
@@ -29,7 +30,8 @@ export interface SubmitExpenseNoteInput {
  * transaction distribuée (ADR 0006) :
  * 1. tout valider, puis générer l'UUID de la note, dont dérive la clé du reçu ;
  * 2. déposer le reçu ;
- * 3. insérer la note, en une seule écriture qui porte déjà la clé ;
+ * 3. insérer la note, en une seule écriture qui porte déjà la clé, avec
+ *    l'événement `ExpenseNoteSubmitted` dans la même transaction (ADR 0007) ;
  * 4. si l'insertion échoue, supprimer le reçu déposé (compensation).
  *
  * Si l'envoi échoue, rien n'est écrit en base. Si la compensation échoue
@@ -74,7 +76,7 @@ export class SubmitExpenseNote {
 
     await this.receipts.upload(note.receiptKey, receipt.bytes, file.contentType)
     try {
-      return await this.notes.add(note, actorId)
+      return await this.notes.add(note, actorId, [expenseNoteSubmitted(note, this.newId())])
     } catch (error) {
       // Compensation au mieux : l'erreur d'origine est celle qui compte.
       await this.receipts.delete(note.receiptKey).catch(() => {})

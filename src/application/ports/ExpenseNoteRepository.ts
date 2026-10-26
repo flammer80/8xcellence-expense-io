@@ -1,5 +1,6 @@
 import type { ExpenseNote } from '@/domain/ExpenseNote'
 import type { ExpenseNoteSort } from '@/domain/ExpenseNoteSort'
+import type { ExpenseNoteEvent } from '@/domain/events'
 
 /**
  * Accès en lecture et écriture aux notes de frais.
@@ -10,6 +11,10 @@ import type { ExpenseNoteSort } from '@/domain/ExpenseNoteSort'
  * `actorId` désigne l'utilisateur au nom duquel la requête s'exécute ;
  * l'adaptateur Postgres l'expose aux policies RLS. Il ne remplace pas les
  * contrôles d'autorisation, qui restent dans l'`ApprovalPolicy`.
+ *
+ * Les écritures prennent les événements émis : ils sont enregistrés dans
+ * l'outbox **dans la même transaction** que la note (pattern outbox, ADR
+ * 0007). Si l'écriture échoue, aucun événement n'existe.
  */
 export interface ExpenseNoteRepository {
   /**
@@ -19,12 +24,13 @@ export interface ExpenseNoteRepository {
   listByOwner(ownerId: string, sort: ExpenseNoteSort): Promise<ExpenseNote[]>
 
   /**
-   * Insère une nouvelle note, en une seule écriture (avec sa clé de reçu).
+   * Insère une nouvelle note, en une seule écriture (avec sa clé de reçu),
+   * et ses événements.
    * @returns la note telle qu'enregistrée.
    * @throws toute erreur de la base (contrainte, policy RLS) : l'appelant
    *   compense alors l'envoi du reçu.
    */
-  add(note: ExpenseNote, actorId: string): Promise<ExpenseNote>
+  add(note: ExpenseNote, actorId: string, events: ExpenseNoteEvent[]): Promise<ExpenseNote>
 
   /** La note `noteId`, ou `null` si elle n'existe pas. */
   findById(noteId: string, actorId: string): Promise<ExpenseNote | null>
@@ -36,8 +42,9 @@ export interface ExpenseNoteRepository {
    * Enregistre la décision portée par `note` (statut, `decidedBy`,
    * `decidedAt`, motif), **seulement si la note est encore en attente** en
    * base : deux décisions concurrentes ne peuvent pas passer toutes les deux.
+   * Les `events` ne sont enregistrés que si la décision l'est.
    * @returns la note telle qu'enregistrée.
    * @throws AlreadyDecidedError si la note a été tranchée entre-temps.
    */
-  saveDecision(note: ExpenseNote, actorId: string): Promise<ExpenseNote>
+  saveDecision(note: ExpenseNote, actorId: string, events: ExpenseNoteEvent[]): Promise<ExpenseNote>
 }
