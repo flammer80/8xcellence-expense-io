@@ -9,6 +9,8 @@ export interface UserProps {
   /** Entreprise (tenant) de l'utilisateur : une seule par utilisateur. */
   companyId: string
   name: string
+  /** Adresse normalisée (`normalizeEmail`), unique dans l'application. */
+  email: string
   role: UserRole
   /** Manager direct ; `null` pour un manager racine, un employé non rattaché ou un RH. */
   managerId: string | null
@@ -30,6 +32,10 @@ export class User {
     return this.props.name
   }
 
+  get email(): string {
+    return this.props.email
+  }
+
   get role(): UserRole {
     return this.props.role
   }
@@ -48,5 +54,10 @@ export class User {
 
   worksFor(companyId: string): boolean {
     return this.props.companyId === companyId
+  }
+
+  /** Le même utilisateur, rattaché à `managerId` (ou détaché si `null`). */
+  withManager(managerId: string | null): User {
+    return new User({ ...this.props, managerId })
   }
 }

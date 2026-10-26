@@ -22,7 +22,7 @@ const next = () => ++sequence
 /** Vide toutes les tables entre deux tests (base de test uniquement). */
 export async function resetDatabase(): Promise<void> {
   await ownerPool().query(
-    'TRUNCATE outbox, notifications, receipt_suggestions, expense_notes, users, companies RESTART IDENTITY CASCADE'
+    'TRUNCATE auth_attempts, email_verifications, outbox, notifications, receipt_suggestions, expense_notes, users, companies RESTART IDENTITY CASCADE'
   )
 }
 

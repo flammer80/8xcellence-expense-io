@@ -2,7 +2,8 @@ import { requestReceiptSuggestion } from '@/composition'
 import { auth } from '@/lib/auth'
 import { traced } from '@/interface/http/correlation'
 import { invalidRequest, problemFromError, unauthenticated } from '@/interface/http/problemDetails'
-import { receiptSuggestionPath, toReceiptSuggestionDto } from '@/interface/http/receiptSuggestionDto'
+import { formFields, parseWith, receiptFormSchema } from '@/interface/http/schemas'
+import { receiptSuggestionPath, toReceiptSuggestionDto } from '@/interface/http/mappers'
 
 const INSTANCE = '/api/receipt-suggestions'
 
@@ -16,11 +17,10 @@ export const POST = traced(async function POST(request: Request) {
     const session = await auth()
     if (!session?.user) return unauthenticated(INSTANCE)
 
-    const formData = await request.formData().catch(() => null)
-    const receipt = formData?.get('receipt')
-    if (!(receipt instanceof File)) {
-      return invalidRequest(INSTANCE, [{ pointer: '#/receipt', detail: 'fichier requis (multipart/form-data)' }])
-    }
+    const formData = await request.formData().catch(() => new FormData())
+    const parsed = parseWith(receiptFormSchema, formFields(formData))
+    if (!parsed.ok) return invalidRequest(INSTANCE, parsed.errors)
+    const { receipt } = parsed.value
 
     const suggestion = await requestReceiptSuggestion.execute({
       actorId: session.user.id,

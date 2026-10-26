@@ -1,83 +1,32 @@
+import { assignManager } from '@/composition'
+import { InvalidInputError } from '@/domain/errors'
 import { auth } from '@/lib/auth'
-import { withUserScope } from '@/lib/db'
-import { respondError } from '@/lib/errors'
+import { traced } from '@/interface/http/correlation'
+import { toCompanyUserDto } from '@/interface/http/mappers'
+import { deprecated, legacyErrorResponse, requireRole } from '@/interface/http/legacyRoutes'
+import { assignManagerRequestSchema, parseWith } from '@/interface/http/schemas'
 
-export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
+// Déprécié : adaptateur fin vers AssignManager, remplacé par
+// PUT /api/users/{id}/manager (ADR 0008). Codes historiques conservés :
+// 403 hors RH, 404 cible introuvable, 409 `Invalid manager` (autre entreprise,
+// soi-même ou cycle — SEC-05). Un corps illisible répond 400 au lieu de
+// détacher l'utilisateur en silence (SEC-10).
+export const PUT = traced(async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
+  const successor = `/api/users/${id}/manager`
   try {
-    const session = await auth()
-    if (!session?.user || session.user.role !== 'hr_admin') {
-      return Response.json({ error: 'Unauthorized' }, { status: 403 })
-    }
-    const { id } = await params
-    const body = (await request.json().catch(() => null)) as { managerId?: string | null } | null
-    const managerId = body?.managerId ?? null
+    const guard = requireRole(await auth(), 'hr_admin')
+    if (!guard.ok) return deprecated(guard.response, successor)
 
-    // Une seule transaction, au nom du RH : les policies RLS limitent lectures
-    // et écriture à son entreprise, et le contrôle de cycle voit le même état
-    // que la mise à jour.
-    return await withUserScope(session.user.id, async (client) => {
-      const hrAdminResult = await client.query('SELECT company_id FROM users WHERE id = $1', [
-        session.user.id,
-      ])
-      const companyId = hrAdminResult.rows[0]?.company_id
-      if (!companyId) {
-        return Response.json({ error: 'Not found' }, { status: 404 })
-      }
+    const parsed = parseWith(assignManagerRequestSchema, await request.json().catch(() => null))
+    if (!parsed.ok) return deprecated(Response.json({ error: 'Invalid body' }, { status: 400 }), successor)
 
-      const targetResult = await client.query(
-        `SELECT id FROM users WHERE id = $1 AND company_id = $2 AND role IN ('employee', 'manager')`,
-        [id, companyId]
-      )
-      if (!targetResult.rows[0]) {
-        return Response.json({ error: 'Not found' }, { status: 404 })
-      }
-
-      if (managerId !== null) {
-        if (managerId === id) {
-          return Response.json({ error: 'Invalid manager' }, { status: 409 })
-        }
-        // Le manager choisi doit avoir le rôle manager et appartenir à la même
-        // entreprise : l'annuaire de l'UI ne protège pas l'API (SEC-05).
-        const managerResult = await client.query(
-          `SELECT id FROM users WHERE id = $1 AND role = 'manager' AND company_id = $2`,
-          [managerId, companyId]
-        )
-        if (!managerResult.rows[0]) {
-          return Response.json({ error: 'Invalid manager' }, { status: 409 })
-        }
-
-        // Refuse tout cycle : la cible ne doit pas figurer parmi les
-        // supérieurs du manager choisi. UNION (et non UNION ALL) garantit que
-        // la remontée s'arrête même si un cycle existe déjà en base.
-        const cycleResult = await client.query(
-          `WITH RECURSIVE chain AS (
-             SELECT id, manager_id FROM users WHERE id = $1
-             UNION
-             SELECT u.id, u.manager_id FROM users u JOIN chain c ON u.id = c.manager_id
-           )
-           SELECT 1 FROM chain WHERE id = $2 LIMIT 1`,
-          [managerId, id]
-        )
-        if (cycleResult.rows[0]) {
-          return Response.json({ error: 'Invalid manager' }, { status: 409 })
-        }
-      }
-
-      const updated = await client.query(
-        `UPDATE users SET manager_id = $1 WHERE id = $2
-         RETURNING id, name, email, role, manager_id`,
-        [managerId, id]
-      )
-      const user = updated.rows[0]
-      return Response.json({
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        managerId: user.manager_id,
-      })
-    })
+    const user = await assignManager.execute({ actorId: guard.actorId, userId: id, ...parsed.value })
+    return deprecated(Response.json(toCompanyUserDto(user)), successor)
   } catch (error) {
-    return respondError(error)
+    if (error instanceof InvalidInputError) {
+      return deprecated(Response.json({ error: 'Invalid manager' }, { status: 409 }), successor)
+    }
+    return deprecated(legacyErrorResponse(error), successor)
   }
-}
+})

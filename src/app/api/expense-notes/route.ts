@@ -1,63 +1,51 @@
 import type { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
-import { respondError } from '@/lib/errors'
 import { listMyExpenseNotes, submitExpenseNote } from '@/composition'
-import { InvalidInputError } from '@/domain/errors'
-import { toExpenseNoteDto } from '@/interface/http/expenseNoteDto'
+import { toExpenseNoteDto } from '@/interface/http/mappers'
 import { parseExpenseNoteSortParam } from '@/interface/http/expenseNoteSortParam'
 import { traced } from '@/interface/http/correlation'
+import { invalidRequest, legacyCompatibleProblem, unauthenticated } from '@/interface/http/problemDetails'
+import { expenseNoteFormSchema, formFields, parseWith } from '@/interface/http/schemas'
+
+const INSTANCE = '/api/expense-notes'
+
+// Contrat : docs/api/openapi.yaml (operationIds listMyExpenseNotes,
+// submitExpenseNote). Erreurs RFC 9457 avec le membre historique `error` et
+// les codes d'origine (ADR 0008).
 
 export async function GET(request: NextRequest) {
   try {
     const session = await auth()
-    if (!session?.user) {
-      return Response.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    if (!session?.user) return unauthenticated(INSTANCE, { error: 'Unauthorized' })
 
     const sort = parseExpenseNoteSortParam(new URL(request.url).searchParams.get('sort'))
     if (sort === null) {
-      return Response.json({ error: 'Invalid sort' }, { status: 400 })
+      return invalidRequest(
+        INSTANCE,
+        [{ pointer: '#/sort', detail: '<colonne> [ASC|DESC] parmi created_at, expense_date, amount, status' }],
+        { error: 'Invalid sort' }
+      )
     }
 
     const notes = await listMyExpenseNotes.execute({ actorId: session.user.id, sort })
     return Response.json(notes.map(toExpenseNoteDto))
   } catch (error) {
-    return respondError(error)
+    return legacyCompatibleProblem(error, INSTANCE)
   }
-}
-
-// Messages historiques de la route (contrat `{ error }`, conservé jusqu'au
-// passage à RFC 9457 à l'étape 6) : un par motif de refus du reçu, un seul
-// pour tous les autres champs.
-const ERROR_BY_INVALID_FIELD: Record<string, string> = {
-  'receipt.type': 'Type de fichier non autorisé pour le reçu',
-  'receipt.size': 'Fichier trop volumineux',
 }
 
 export const POST = traced(async function POST(request: NextRequest) {
   try {
     const session = await auth()
-    if (!session?.user) {
-      return Response.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    if (!session?.user) return unauthenticated(INSTANCE, { error: 'Unauthorized' })
 
-    const formData = await request.formData()
-    const amount = formData.get('amount')
-    const expenseDate = formData.get('expenseDate')
-    const description = formData.get('description')
-    const receipt = formData.get('receipt')
-    if (
-      typeof amount !== 'string' ||
-      typeof expenseDate !== 'string' ||
-      typeof description !== 'string' ||
-      !(receipt instanceof File)
-    ) {
-      return Response.json({ error: 'Champs invalides' }, { status: 400 })
-    }
+    const parsed = parseWith(expenseNoteFormSchema, formFields(await request.formData()))
+    if (!parsed.ok) return invalidRequest(INSTANCE, parsed.errors, { error: 'Champs invalides' })
+    const { amount, expenseDate, description, receipt } = parsed.value
 
     const note = await submitExpenseNote.execute({
       actorId: session.user.id,
-      amount: Number.parseFloat(amount),
+      amount,
       expenseDate,
       description,
       receipt: { bytes: Buffer.from(await receipt.arrayBuffer()), declaredType: receipt.type },
@@ -68,9 +56,6 @@ export const POST = traced(async function POST(request: NextRequest) {
       headers: { Location: `/api/expense-notes/${note.id}` },
     })
   } catch (error) {
-    if (error instanceof InvalidInputError) {
-      return Response.json({ error: ERROR_BY_INVALID_FIELD[error.field] ?? 'Champs invalides' }, { status: 400 })
-    }
-    return respondError(error)
+    return legacyCompatibleProblem(error, INSTANCE)
   }
 })

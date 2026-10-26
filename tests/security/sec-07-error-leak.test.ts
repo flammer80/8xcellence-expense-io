@@ -23,6 +23,13 @@ describe('SEC-07 — fuite des erreurs internes', () => {
     const body = await response.json()
     expect(body).not.toHaveProperty('stack')
     expect(JSON.stringify(body)).not.toMatch(/date|syntax|node_modules|\.ts/i)
-    expect(body).toEqual({ error: 'Internal Server Error', correlationId: expect.stringMatching(/^[0-9a-f-]{36}$/) })
+    expect(body).toEqual({
+      type: 'https://expense.io/problems/internal',
+      title: 'Erreur interne',
+      status: 500,
+      instance: '/api/expense-notes',
+      error: 'Internal Server Error',
+      correlationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+    })
   })
 })

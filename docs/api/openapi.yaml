@@ -1,17 +1,26 @@
 openapi: 3.1.0
 info:
   title: Expense.io API
-  version: 1.3.0
+  version: 2.0.0
   description: |
     Contrat de l'API d'Expense.io, source de vérité (contract first, CLAUDE.md §10).
-    Il est mis à jour **avant** chaque changement de route.
+    Il est mis à jour **avant** chaque changement de route. Les types TypeScript
+    des corps échangés vivent dans `src/interface/http/dto.ts` (mêmes noms que
+    les schémas ci-dessous), partagés par le back et le front.
 
-    Ce document couvre pour l'instant la soumission d'une note (étape 4), le
-    parcours de décision (étape 3), l'asynchrone (étape 5 : suggestion OCR en
-    202 + polling, notifications) et les anciennes routes qu'ils remplacent ;
-    les autres routes y entreront au fil de leur migration. Les choix de style
-    sont expliqués dans `docs/adr/0004-route-de-decision.md` et
-    `docs/adr/0007-asynchrone-unifie.md`.
+    Toutes les routes y figurent, y compris les anciennes, dépréciées. Choix
+    de style : `docs/adr/0004-route-de-decision.md`, `0007-asynchrone-unifie.md`
+    et `0008-contrat-et-front.md`.
+
+    **2.0.0 (MAJOR)** : `receiptKey` disparaît de `ExpenseNote` (détail de
+    stockage). Voir `CHANGELOG.md`.
+
+    Erreurs : RFC 9457 (`application/problem+json`) partout. Codes : 400 corps
+    ou paramètre illisible, 401 sans session, 403 rôle insuffisant, 404
+    ressource introuvable ou invisible, 409 conflit d'état, 422 règle métier,
+    500 avec `correlationId`. Les routes qui renvoyaient `{ error }` gardent
+    ce membre (extension, dépréciée) et leurs codes historiques ; les routes
+    dépréciées gardent leur format `{ error }`.
 
     Traçabilité : les routes qui modifient l'état acceptent un en-tête
     `X-Correlation-Id` (8 à 64 caractères `[A-Za-z0-9._-]`, sinon il est
@@ -24,6 +33,8 @@ servers:
 tags:
   - name: notes
     description: Notes de frais (ressources REST)
+  - name: users
+    description: Annuaire de l'entreprise et rattachements (RH)
   - name: async
     description: Traitements en arrière-plan (ADR 0007)
   - name: legacy
@@ -31,6 +42,33 @@ tags:
 
 paths:
   /api/expense-notes:
+    get:
+      tags: [notes]
+      operationId: listMyExpenseNotes
+      summary: Mes notes de frais
+      parameters:
+        - name: sort
+          in: query
+          required: false
+          description: |
+            `<colonne> [ASC|DESC]`, colonne parmi `created_at`, `expense_date`,
+            `amount`, `status` (casse indifférente). Par défaut, les plus
+            récentes d'abord. Toute autre valeur répond 400 (SEC-01).
+          schema: { type: string, example: amount DESC }
+      responses:
+        '200':
+          description: Notes de l'utilisateur connecté.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ExpenseNote' }
+        '400':
+          description: '`sort` invalide (pointeur `#/sort`, `error: Invalid sort`).'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
     post:
       tags: [notes]
       operationId: submitExpenseNote
@@ -47,8 +85,8 @@ paths:
         Le type du reçu est vérifié sur son contenu (premiers octets), pas
         seulement sur le type MIME annoncé.
 
-        Format historique conservé : erreurs `{ error }` (passage à RFC 9457
-        prévu à l'étape « contrat »).
+        Erreurs RFC 9457 ; le membre historique `error` est conservé, avec les
+        mêmes messages et les mêmes codes qu'avant la version 2.0.0.
       requestBody:
         required: true
         content:
@@ -84,24 +122,15 @@ paths:
               schema: { $ref: '#/components/schemas/ExpenseNote' }
         '400':
           description: |
-            Champ manquant ou invalide (`Champs invalides`), type de reçu refusé ou
-            contenu qui ne correspond pas au type annoncé (`Type de fichier non
-            autorisé pour le reçu`), reçu trop volumineux (`Fichier trop volumineux`).
+            Champ manquant ou invalide (`error: Champs invalides`), type de reçu
+            refusé ou contenu qui ne correspond pas au type annoncé (`Type de
+            fichier non autorisé pour le reçu`), reçu trop volumineux (`Fichier
+            trop volumineux`). `errors[].pointer` désigne le champ.
           content:
-            application/json:
-              schema: { $ref: '#/components/schemas/LegacyError' }
-        '401':
-          $ref: '#/components/responses/LegacyError'
-        '500':
-          description: Erreur interne, sans détail ; `correlationId` pour retrouver l'occurrence dans les logs.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [error, correlationId]
-                properties:
-                  error: { type: string, example: Internal Server Error }
-                  correlationId: { type: string, format: uuid }
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '500': { $ref: '#/components/responses/Internal' }
 
   /api/expense-notes/{id}/decision:
     post:
@@ -172,7 +201,7 @@ paths:
         soit le statut. Une note qu'on n'a pas le droit de voir répond 404,
         comme une note inexistante.
 
-        Format historique conservé : erreurs `{ error }`.
+        Erreurs RFC 9457, avec le membre historique `error`.
       parameters:
         - $ref: '#/components/parameters/NoteId'
       responses:
@@ -180,15 +209,94 @@ paths:
           description: URL pré-signée, valable 5 minutes.
           content:
             application/json:
+              schema: { $ref: '#/components/schemas/ReceiptUrl' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/expense-notes/pending:
+    get:
+      tags: [notes]
+      operationId: listPendingApprovals
+      summary: Ma file de validation
+      description: |
+        Les notes en attente que l'utilisateur connecté peut trancher, selon
+        l'`ApprovalPolicy` : celles de ses subordonnés directs pour un manager ;
+        celles des utilisateurs sans manager et des autres RH pour un RH ; liste
+        vide pour un employé. Les plus anciennes d'abord, avec le nom de l'auteur.
+        Remplace `GET /api/manager/expense-notes` et `GET /api/hr/expense-notes`.
+      responses:
+        '200':
+          description: Notes à trancher, éventuellement aucune.
+          content:
+            application/json:
               schema:
-                type: object
-                required: [url]
-                properties:
-                  url: { type: string, format: uri }
-        '401':
-          $ref: '#/components/responses/LegacyError'
+                type: array
+                items: { $ref: '#/components/schemas/PendingApproval' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+
+  /api/users:
+    get:
+      tags: [users]
+      operationId: listCompanyUsers
+      summary: Annuaire de l'entreprise (RH)
+      description: Employés et managers de l'entreprise du RH connecté, triés par nom. Les RH n'y figurent pas.
+      responses:
+        '200':
+          description: Annuaire.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CompanyUser' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/users/{id}/manager:
+    put:
+      tags: [users]
+      operationId: assignManager
+      summary: Rattacher un utilisateur à son manager (RH)
+      description: |
+        Règle n°6 : le RH rattache un employé ou un manager à un manager de **sa**
+        entreprise, sans créer de cycle (A → B → A, ou plus long). `null`
+        détache l'utilisateur, qui devient racine (ses notes reviennent au RH).
+        PUT : la requête remplace le rattachement ; la rejouer donne le même état.
+        Deux rattachements concurrents ne peuvent pas former un cycle.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Utilisateur à rattacher.
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AssignManagerRequest' }
+            examples:
+              assign: { value: { managerId: 2f9a1c3e-5b7d-4e8f-9a0b-1c2d3e4f5a6b } }
+              detach: { value: { managerId: null } }
+      responses:
+        '200':
+          description: L'utilisateur, rattaché.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyUser' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404':
-          $ref: '#/components/responses/LegacyError'
+          description: Utilisateur inexistant, RH, ou d'une autre entreprise.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422':
+          description: |
+            `managerId` (pointeur `#/managerId`) ne désigne pas un manager de
+            l'entreprise, désigne l'utilisateur lui-même, ou créerait un cycle.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
   /api/receipt-suggestions:
     post:
@@ -322,6 +430,73 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/LegacyError' }
 
+  /api/manager/expense-notes:
+    get:
+      tags: [legacy]
+      deprecated: true
+      summary: (Déprécié) File de validation du manager
+      description: Remplacé par `GET /api/expense-notes/pending` (même contenu). Répond 401 si la session n'est pas celle d'un manager.
+      responses:
+        '200':
+          description: Porte `Deprecation` et `Link`.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/PendingApproval' } }
+        '401': { $ref: '#/components/responses/LegacyError' }
+  /api/hr/expense-notes:
+    get:
+      tags: [legacy]
+      deprecated: true
+      summary: (Déprécié) File de validation du RH
+      description: Remplacé par `GET /api/expense-notes/pending` (même contenu). Répond 403 si la session n'est pas celle d'un RH.
+      responses:
+        '200':
+          description: Porte `Deprecation` et `Link`.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/PendingApproval' } }
+        '403': { $ref: '#/components/responses/LegacyError' }
+  /api/hr/users:
+    get:
+      tags: [legacy]
+      deprecated: true
+      summary: (Déprécié) Annuaire de l'entreprise
+      description: Remplacé par `GET /api/users`. Répond 403 si la session n'est pas celle d'un RH.
+      responses:
+        '200':
+          description: Porte `Deprecation` et `Link`.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/CompanyUser' } }
+        '403': { $ref: '#/components/responses/LegacyError' }
+  /api/hr/users/{id}/manager:
+    put:
+      tags: [legacy]
+      deprecated: true
+      summary: (Déprécié) Rattacher un utilisateur à son manager
+      description: |
+        Remplacé par `PUT /api/users/{id}/manager`. Codes historiques : 403 hors
+        RH, 404 cible introuvable, **409** `{ "error": "Invalid manager" }` là où
+        la nouvelle route répond 422.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AssignManagerRequest' }
+      responses:
+        '200':
+          description: Porte `Deprecation` et `Link`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyUser' }
+        '403': { $ref: '#/components/responses/LegacyError' }
+        '404': { $ref: '#/components/responses/LegacyError' }
+        '409': { $ref: '#/components/responses/LegacyError' }
   /api/manager/expense-notes/{id}/approve:
     post:
       tags: [legacy]
@@ -418,21 +593,51 @@ components:
 
     ExpenseNote:
       type: object
-      required: [id, userId, amount, expenseDate, description, receiptKey, status, createdAt]
+      description: Note de frais. Aucun détail de stockage (le reçu se lit par `GET …/receipt-url`).
+      required: [id, userId, amount, expenseDate, description, status, createdAt]
       properties:
         id: { type: string, format: uuid }
         userId: { type: string, format: uuid }
         amount: { type: number, example: 42.5 }
         expenseDate: { type: string, format: date }
         description: { type: string }
-        receiptKey:
-          type: string
-          deprecated: true
-          description: |
-            Détail de stockage, désormais opaque (`receipts/{companyId}/{noteId}.{ext}`) ;
-            retrait prévu (changement MAJOR) à l'étape « contrat ».
         status: { type: string, enum: [pending, approved, rejected] }
         createdAt: { type: string, format: date-time }
+
+    PendingApproval:
+      description: Note à trancher, avec le nom de son auteur.
+      allOf:
+        - $ref: '#/components/schemas/ExpenseNote'
+        - type: object
+          required: [authorName]
+          properties:
+            authorName: { type: string }
+
+    CompanyUser:
+      type: object
+      required: [id, name, email, role, managerId]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: string, format: email }
+        role: { type: string, enum: [employee, manager] }
+        managerId: { type: [string, 'null'], format: uuid }
+
+    AssignManagerRequest:
+      type: object
+      required: [managerId]
+      additionalProperties: false
+      properties:
+        managerId:
+          type: [string, 'null']
+          format: uuid
+          description: Nouveau manager direct, ou `null` pour détacher.
+
+    ReceiptUrl:
+      type: object
+      required: [url]
+      properties:
+        url: { type: string, format: uri }
 
     Problem:
       description: RFC 9457 — Problem Details for HTTP APIs.
@@ -459,6 +664,12 @@ components:
         correlationId:
           type: string
           description: Présent sur les 500 ; permet de retrouver l'erreur dans les logs serveur.
+        error:
+          type: string
+          deprecated: true
+          description: |
+            Message historique, présent seulement sur les routes qui renvoyaient
+            `{ error }` avant la 2.0.0 (`/api/expense-notes`, `…/receipt-url`).
 
     ReceiptSuggestion:
       type: object
@@ -504,6 +715,16 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
     Unauthenticated:
       description: Aucune session.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Forbidden:
+      description: 'Session valide, mais rôle insuffisant (403, jamais 401 — A7).'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Internal:
+      description: Erreur interne, sans détail ; `correlationId` pour retrouver l'occurrence dans les logs.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }

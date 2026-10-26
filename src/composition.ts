@@ -1,14 +1,18 @@
+import { AssignManager } from '@/application/AssignManager'
 import { DecideExpenseNote } from '@/application/DecideExpenseNote'
 import { GetReceiptSuggestion } from '@/application/GetReceiptSuggestion'
 import { GetReceiptUrl } from '@/application/GetReceiptUrl'
 import { NotifyAuthorOfDecision } from '@/application/handlers/NotifyAuthorOfDecision'
 import { ProcessReceiptOcr } from '@/application/handlers/ProcessReceiptOcr'
+import { SendVerificationEmail } from '@/application/handlers/SendVerificationEmail'
+import { ListCompanyUsers } from '@/application/ListCompanyUsers'
 import { ListMyNotifications } from '@/application/ListMyNotifications'
 import { ListMyExpenseNotes } from '@/application/ListMyExpenseNotes'
 import { ListPendingApprovals } from '@/application/ListPendingApprovals'
 import { OutboxWorker } from '@/application/OutboxWorker'
 import { RequestReceiptSuggestion } from '@/application/RequestReceiptSuggestion'
 import { SubmitExpenseNote } from '@/application/SubmitExpenseNote'
+import { ConsoleEmailSender } from '@/infrastructure/notifications/ConsoleEmailSender'
 import { TesseractOcrService } from '@/infrastructure/ocr/TesseractOcrService'
 import { PostgresExpenseNoteRepository } from '@/infrastructure/postgres/PostgresExpenseNoteRepository'
 import { PostgresNotificationAdapter } from '@/infrastructure/postgres/PostgresNotificationAdapter'
@@ -32,6 +36,8 @@ export const listMyExpenseNotes = new ListMyExpenseNotes(expenseNoteRepository)
 export const listPendingApprovals = new ListPendingApprovals(expenseNoteRepository, userRepository)
 export const decideExpenseNote = new DecideExpenseNote(expenseNoteRepository, userRepository)
 export const getReceiptUrl = new GetReceiptUrl(expenseNoteRepository, userRepository, receiptStorage)
+export const listCompanyUsers = new ListCompanyUsers(userRepository)
+export const assignManager = new AssignManager(userRepository)
 export const listMyNotifications = new ListMyNotifications(notifications)
 export const requestReceiptSuggestion = new RequestReceiptSuggestion(
   receiptSuggestionRepository,
@@ -47,4 +53,10 @@ export const getReceiptSuggestion = new GetReceiptSuggestion(receiptSuggestionRe
 export const outboxWorker = new OutboxWorker(new PostgresOutboxStore(), {
   ExpenseNoteDecided: new NotifyAuthorOfDecision(notifications),
   ReceiptOcrRequested: new ProcessReceiptOcr(receiptSuggestionRepository, receiptStorage, new TesseractOcrService()),
+  EmailVerificationRequested: new SendVerificationEmail(new ConsoleEmailSender(), appUrl()),
 })
+
+/** URL publique de l'application, pour les liens envoyés par email. */
+function appUrl(): string {
+  return (process.env.APP_URL ?? 'http://localhost:3000').replace(/\/$/, '')
+}

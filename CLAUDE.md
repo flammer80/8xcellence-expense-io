@@ -177,7 +177,7 @@ Expense.io est un **monolithe Next.js**.
 - Taille : environ 50 fichiers source, une seule migration (`migrations/1700000000001_init-schema.sql`), 3 tables.
 - Lancement local : `make dev` monte Postgres et S3 local (LocalStack), migre, crée le bucket et peuple 3 comptes de démo (`scripts/seed.mjs`, idempotent).
 - TypeScript est en mode `strict` : ne jamais l'assouplir, pas de `any` ni de `@ts-ignore` sans justification écrite.
-- Nom de paquet actuel : `expense-io-version-b`.
+- Nom de paquet : `expense-io` (renommé à l'étape 6 ; il s'appelait `expense-io-version-b`).
 - Dossiers `domain/`, `ports/`, `adapters/`, `utils/` présents mais **importés par aucun fichier** (hexagone de façade).
 
 **Topologie actuelle :** toutes les flèches partent de la couche HTTP (routes), qui parle directement à Postgres et à S3. Aucune couche application ne s'intercale, et le bloc qui devrait porter les règles métier (`domain/`) n'est relié à rien.
@@ -557,7 +557,7 @@ L'objectif : ajouter une fonctionnalité doit être **mécanique et sûr**, en 1
 - [x] Étape 3 — Workflow d'approbation (`ApprovalPolicy`, `POST /api/expense-notes/{id}/decision`, anciennes routes gardées en adaptateurs dépréciés, cf. ADR 0003 et 0004)
 - [x] Étape 4 — Schéma et soumission (rôle `expense_app` + RLS par entreprise, `company_id`/`currency`/`updated_at`/`citext`/index, `SubmitExpenseNote` atomique avec clé UUID et vérification des magic bytes, cf. ADR 0005 et 0006)
 - [x] Étape 5 — Asynchrone unifié (table `outbox` comme file unique, worker maison `SKIP LOCKED` lancé avec le serveur, rôle `expense_worker`, notifications de décision, OCR en 202 + polling avec worker Tesseract partagé, cf. ADR 0007)
-- [ ] Étape 6 — Contrat et front
+- [x] Étape 6 — Contrat et front (DTO partagés en `import type`, zod, RFC 9457 partout, `receiptKey` retiré → OpenAPI 2.0.0, routes `/api/expense-notes/pending` et `/api/users`, `AdminConsole` découpé, 0 `eslint-disable`, onboarding domaine pro + vérification d'email via l'outbox + limitation des tentatives, cf. ADR 0008 et 0009)
 - [ ] `HOW_TO_ADD_A_FEATURE.md` prêt pour le live coding
 
 ---

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { toExpenseNoteDto } from '@/interface/http/expenseNoteDto'
+import { toExpenseNoteDto } from '@/interface/http/mappers'
 import { parseExpenseNoteSortParam } from '@/interface/http/expenseNoteSortParam'
 import { anExpenseNote } from '../../helpers/builders'
 
@@ -27,7 +27,7 @@ describe('parseExpenseNoteSortParam', () => {
 })
 
 describe('toExpenseNoteDto', () => {
-  it('conserve le format JSON historique de l’API', () => {
+  it('expose la note sans aucun détail de stockage (plus de `receiptKey`, ADR 0008)', () => {
     const note = anExpenseNote({
       id: 'n1',
       userId: 'u1',
@@ -42,7 +42,6 @@ describe('toExpenseNoteDto', () => {
       amount: 12.3,
       expenseDate: '2026-10-01',
       description: note.description,
-      receiptKey: note.receiptKey,
       status: 'pending',
       createdAt: '2026-10-02T08:00:00.000Z',
     })

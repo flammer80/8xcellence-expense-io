@@ -51,7 +51,7 @@ describe.each([
     const response = await call(note.id)
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toMatchObject({ id: note.id, status: finalStatus, receiptKey: note.receiptKey })
+    expect(await response.json()).toMatchObject({ id: note.id, status: finalStatus })
     expect(await getNoteStatus(note.id)).toBe(finalStatus)
   })
 
@@ -71,7 +71,7 @@ describe.each([
     const response = await call(note.id)
 
     expect(response.status).toBe(409)
-    expect(await response.json()).toEqual({ error: 'Already decided' })
+    expect(await response.json()).toMatchObject({ error: 'Already decided' })
   })
 
   it("répond 401 pour un rôle autre que manager", async () => {
