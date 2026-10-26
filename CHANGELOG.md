@@ -48,6 +48,17 @@ Voir `docs/adr/0005-isolation-des-entreprises-en-base.md` et `docs/adr/0006-soum
 
   Elle supprime aussi `receipt_seq`.
 
+### Asynchrone unifié (étape 5)
+
+Voir `docs/adr/0007-asynchrone-unifie.md`. Contrat : `docs/api/openapi.yaml` (v1.3.0).
+
+- **L'employé est prévenu des décisions** : chaque décision (nouvelle route comme anciennes routes approve/reject) produit l'événement `ExpenseNoteDecided`, écrit dans la table `outbox` dans la même transaction que la décision. Le worker en tire une notification, visible sur « Mes notes de frais » et via **`GET /api/notifications`** (nouveau). Une décision refusée (409, 403…) ne publie rien.
+- **Nouveau : `POST /api/receipt-suggestions`** répond **202** avec `Location` ; **`GET /api/receipt-suggestions/{id}`** donne l'état (`pending`, `done`, `failed`). L'OCR ne tourne plus dans la requête HTTP. L'écran « Mes notes de frais » utilise ce parcours (polling).
+- **`POST /api/expense-notes/receipt-suggestion`** (SEC-08) : déprécié (`Deprecation`, `Link`) mais toujours synchrone et au même format. Un fichier de plus de 5 Mo répond désormais **413** `{ "error": "Fichier trop volumineux" }`. L'OCR réutilise un seul worker Tesseract et traite une image à la fois.
+- **Traçabilité** : les routes d'écriture acceptent et renvoient `X-Correlation-Id`. Il est enregistré avec les événements et figure dans les logs JSON du worker ; les erreurs 500 réutilisent le même id.
+- **Configuration** : nouvelle variable `WORKER_DATABASE_URL` (rôle Postgres `expense_worker`, ajouté à un `.env` existant par `make env`). `OUTBOX_WORKER=off` désactive le worker sur une instance.
+- **Schéma** : la migration `1700000000005_outbox-async.sql` ajoute les tables `outbox`, `notifications` et `receipt_suggestions`, toutes sous RLS, et le rôle `expense_worker`.
+
 ### Architecture (sans changement de l'API)
 
 - Noyau hexagonal (`docs/adr/0002-architecture-hexagonale.md`). `GET /api/expense-notes` passe par le cas d'usage `ListMyExpenseNotes`. Les 7 routes qui renvoient des notes partagent un seul mapping. Réponses, codes et tri sont inchangés.

@@ -55,14 +55,17 @@ Voir `.env.example`. `AUTH_SECRET` est obligatoire : l'application refuse de
 démarrer sans lui, ou avec la valeur d'exemple. `make env` (appelé par
 `make dev`) en génère un.
 
-Postgres est utilisé avec deux rôles (`docs/adr/0005-isolation-des-entreprises-en-base.md`) :
+Postgres est utilisé avec trois rôles (`docs/adr/0005-isolation-des-entreprises-en-base.md`,
+`docs/adr/0007-asynchrone-unifie.md`) :
 
 | Variable | Rôle | Utilisée par |
 |---|---|---|
 | `DATABASE_URL` | `expense_app`, soumis à la RLS | l'application |
+| `WORKER_DATABASE_URL` | `expense_worker`, ne lit que la table `outbox` | le worker de l'outbox |
 | `MIGRATION_DATABASE_URL` | `expense`, propriétaire du schéma | migrations, seed, `make ensure-app-role` |
 
-`make env` ajoute ces deux variables à un `.env` créé avant cette séparation.
+`make env` ajoute ces variables à un `.env` créé avant leur introduction.
+`OUTBOX_WORKER=off` désactive le worker de l'outbox sur une instance.
 
 ## Tests
 
@@ -104,6 +107,13 @@ L'isolation entre entreprises est garantie en plus par PostgreSQL : rôle
 applicatif sans privilège et policies RLS filtrées par entreprise
 (`docs/adr/0005-isolation-des-entreprises-en-base.md`). Une note ne peut pas
 exister sans reçu (`docs/adr/0006-soumission-atomique.md`).
+Tout l'asynchrone passe par une seule file, la table `outbox` : les
+événements (`ExpenseNoteSubmitted`, `ExpenseNoteDecided`) y sont écrits dans
+la même transaction que la note, et les jobs (analyse OCR d'un reçu) y sont
+déposés de la même façon. Un worker unique, lancé avec le serveur
+(`src/instrumentation.ts`), les distribue aux consommateurs, avec retries,
+lettre morte et logs JSON portant l'id de corrélation de la requête
+(`docs/adr/0007-asynchrone-unifie.md`).
 Le contrat d'API est `docs/api/openapi.yaml` : il est mis à jour avant chaque
 changement de route.
 

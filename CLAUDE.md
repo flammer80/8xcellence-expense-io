@@ -556,7 +556,7 @@ L'objectif : ajouter une fonctionnalité doit être **mécanique et sûr**, en 1
 - [x] Étape 2 — Noyau hexagonal (route pilote `GET /api/expense-notes`, garde-fou ESLint ; `UnitOfWork`, `UserRepository` et `ReceiptKey` reportés aux étapes 3-4, cf. ADR 0002)
 - [x] Étape 3 — Workflow d'approbation (`ApprovalPolicy`, `POST /api/expense-notes/{id}/decision`, anciennes routes gardées en adaptateurs dépréciés, cf. ADR 0003 et 0004)
 - [x] Étape 4 — Schéma et soumission (rôle `expense_app` + RLS par entreprise, `company_id`/`currency`/`updated_at`/`citext`/index, `SubmitExpenseNote` atomique avec clé UUID et vérification des magic bytes, cf. ADR 0005 et 0006)
-- [ ] Étape 5 — Asynchrone unifié
+- [x] Étape 5 — Asynchrone unifié (table `outbox` comme file unique, worker maison `SKIP LOCKED` lancé avec le serveur, rôle `expense_worker`, notifications de décision, OCR en 202 + polling avec worker Tesseract partagé, cf. ADR 0007)
 - [ ] Étape 6 — Contrat et front
 - [ ] `HOW_TO_ADD_A_FEATURE.md` prêt pour le live coding
 

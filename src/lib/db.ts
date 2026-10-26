@@ -6,6 +6,7 @@ types.setTypeParser(1082, (value: string) => value)
 
 declare global {
   var __pgPool: Pool | undefined
+  var __pgWorkerPool: Pool | undefined
 }
 
 export function getPool(): Pool {
@@ -17,6 +18,23 @@ export function getPool(): Pool {
     global.__pgPool = new Pool({ connectionString, max: 20 })
   }
   return global.__pgPool
+}
+
+/**
+ * Connexion du worker de l'outbox (rôle `expense_worker`, ADR 0007) : elle
+ * ne sert qu'à lire et acquitter les messages. Le traitement d'un message
+ * passe, lui, par `withUserScope`, au nom de son destinataire.
+ * @throws Error si `WORKER_DATABASE_URL` n'est pas définie.
+ */
+export function getWorkerPool(): Pool {
+  if (!global.__pgWorkerPool) {
+    const connectionString = process.env.WORKER_DATABASE_URL
+    if (!connectionString) {
+      throw new Error('WORKER_DATABASE_URL is not set')
+    }
+    global.__pgWorkerPool = new Pool({ connectionString, max: 2 })
+  }
+  return global.__pgWorkerPool
 }
 
 /**

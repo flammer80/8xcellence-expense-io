@@ -83,4 +83,27 @@ describe('SubmitExpenseNote', () => {
     await expect(submit.execute(input({ actorId: 'ghost' }))).rejects.toBeInstanceOf(NotFoundError)
     expect(receipts.files.size).toBe(0)
   })
+
+  it('émet ExpenseNoteSubmitted avec la note, dans la même écriture (ADR 0007)', async () => {
+    const { notes, submit } = setup()
+
+    await submit.execute(input())
+
+    expect(notes.events).toEqual([
+      expect.objectContaining({
+        type: 'ExpenseNoteSubmitted',
+        version: 1,
+        companyId: 'acme',
+        payload: expect.objectContaining({ noteId: NOTE_ID, authorId: 'employee', amount: 42.5 }),
+      }),
+    ])
+  })
+
+  it("n'émet aucun événement si l'insertion échoue", async () => {
+    const notes = new FailingInsertRepository()
+    const { submit } = setup(notes)
+
+    await expect(submit.execute(input())).rejects.toThrow()
+    expect(notes.events).toEqual([])
+  })
 })

@@ -2,8 +2,10 @@ import type { ExpenseNoteRepository } from '@/application/ports/ExpenseNoteRepos
 import { AlreadyDecidedError } from '@/domain/errors'
 import type { ExpenseNote } from '@/domain/ExpenseNote'
 import type { ExpenseNoteSort, ExpenseNoteSortField } from '@/domain/ExpenseNoteSort'
+import type { ExpenseNoteEvent } from '@/domain/events'
 import { withUserScope } from '@/lib/db'
 import { toExpenseNote, type ExpenseNoteRow } from './expenseNoteRow'
+import { insertOutboxMessages } from './outbox'
 
 // ORDER BY n'accepte pas de paramètre lié : la clause est construite à partir
 // de cette table de correspondance, jamais d'une saisie (SEC-01).
@@ -24,7 +26,8 @@ function toOrderBy({ field, direction }: ExpenseNoteSort): string {
 
 /**
  * Notes de frais stockées dans Postgres. Chaque requête passe par
- * `withUserScope`, qui expose l'utilisateur courant aux policies RLS.
+ * `withUserScope`, qui expose l'utilisateur courant aux policies RLS. Les
+ * événements sont écrits dans l'outbox dans la même transaction que la note.
  */
 export class PostgresExpenseNoteRepository implements ExpenseNoteRepository {
   async listByOwner(ownerId: string, sort: ExpenseNoteSort): Promise<ExpenseNote[]> {
@@ -37,7 +40,7 @@ export class PostgresExpenseNoteRepository implements ExpenseNoteRepository {
     })
   }
 
-  async add(note: ExpenseNote, actorId: string): Promise<ExpenseNote> {
+  async add(note: ExpenseNote, actorId: string, events: ExpenseNoteEvent[]): Promise<ExpenseNote> {
     return withUserScope(actorId, async (client) => {
       const result = await client.query<ExpenseNoteRow>(
         `INSERT INTO expense_notes
@@ -56,6 +59,7 @@ export class PostgresExpenseNoteRepository implements ExpenseNoteRepository {
           note.createdAt,
         ]
       )
+      await insertOutboxMessages(client, events)
       return toExpenseNote(result.rows[0])
     })
   }
@@ -80,7 +84,7 @@ export class PostgresExpenseNoteRepository implements ExpenseNoteRepository {
     })
   }
 
-  async saveDecision(note: ExpenseNote, actorId: string): Promise<ExpenseNote> {
+  async saveDecision(note: ExpenseNote, actorId: string, events: ExpenseNoteEvent[]): Promise<ExpenseNote> {
     return withUserScope(actorId, async (client) => {
       // Mise à jour conditionnelle : si une autre décision est passée entre la
       // lecture et l'écriture, aucune ligne ne correspond et on refuse (409).
@@ -92,6 +96,7 @@ export class PostgresExpenseNoteRepository implements ExpenseNoteRepository {
         [note.id, note.status, note.decidedBy, note.decidedAt, note.rejectionReason]
       )
       if (!result.rows[0]) throw new AlreadyDecidedError(note.id)
+      await insertOutboxMessages(client, events)
       return toExpenseNote(result.rows[0])
     })
   }

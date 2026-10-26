@@ -103,30 +103,76 @@ function parseExpenseDate(text: string): string | undefined {
   return undefined
 }
 
-// Pas de limite de taille de fichier ici (contrairement à la création d'une
-// note de frais) : un gros fichier peut monopoliser le worker un long
-// moment avant de renvoyer une suggestion vide.
-export async function suggestFields(receipt: {
+// Un seul worker Tesseract pour tout le process, créé à la première analyse
+// puis réutilisé (charger le modèle coûte plus cher que reconnaître un
+// ticket). Les analyses passent l'une après l'autre : au plus un cœur CPU est
+// occupé par l'OCR, quel que soit le nombre de demandes (SEC-08, ADR 0007).
+
+type TesseractWorker = Awaited<ReturnType<typeof createWorker>>
+
+let sharedWorker: Promise<TesseractWorker> | null = null
+let queue: Promise<unknown> = Promise.resolve()
+
+/** Taille maximale d'une image analysée, en octets (5 Mo). */
+export const MAX_OCR_BYTES = 5 * 1024 * 1024
+
+function getWorker(): Promise<TesseractWorker> {
+  if (!sharedWorker) {
+    sharedWorker = createWorker('fra', undefined, { langPath: TESSDATA_PATH, cacheMethod: 'none' })
+    // Si la création échoue, la prochaine analyse retentera.
+    sharedWorker.catch(() => {
+      sharedWorker = null
+    })
+  }
+  return sharedWorker
+}
+
+/** Exécute `task` quand les analyses précédentes sont terminées (concurrence : 1). */
+function enqueue<T>(task: () => Promise<T>): Promise<T> {
+  const result = queue.then(task, task)
+  queue = result.catch(() => undefined)
+  return result
+}
+
+/**
+ * Reconnaît montant et date sur un reçu.
+ * Type non supporté ou image trop grande : suggestion vide, sans analyse.
+ * @throws si Tesseract échoue (panne technique) : à l'appelant de décider
+ *   s'il retente.
+ */
+export async function recognizeReceipt(receipt: {
   data: Buffer
   mimeType: string
 }): Promise<ExpenseNoteSuggestion> {
-  if (!SUPPORTED_MIME_TYPES.includes(receipt.mimeType)) {
+  if (!SUPPORTED_MIME_TYPES.includes(receipt.mimeType) || receipt.data.length > MAX_OCR_BYTES) {
     return {}
   }
-
-  try {
-    const worker = await createWorker('fra', undefined, {
-      langPath: TESSDATA_PATH,
-      cacheMethod: 'none',
-    })
+  return enqueue(async () => {
+    const worker = await getWorker()
     try {
       const {
         data: { text },
       } = await worker.recognize(receipt.data)
       return { amount: parseAmount(text), expenseDate: parseExpenseDate(text) }
-    } finally {
-      await worker.terminate()
+    } catch (error) {
+      // Un worker en erreur n'est pas réutilisé.
+      sharedWorker = null
+      await worker.terminate().catch(() => {})
+      throw error
     }
+  })
+}
+
+/**
+ * Variante tolérante, pour l'ancienne route synchrone : une panne renvoie
+ * une suggestion vide plutôt qu'une erreur.
+ */
+export async function suggestFields(receipt: {
+  data: Buffer
+  mimeType: string
+}): Promise<ExpenseNoteSuggestion> {
+  try {
+    return await recognizeReceipt(receipt)
   } catch (error) {
     console.error('[ocr] Extraction échouée, suggestion vide renvoyée', error)
     return {}

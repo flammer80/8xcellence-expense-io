@@ -19,9 +19,11 @@ export interface TestNote {
 let sequence = 0
 const next = () => ++sequence
 
-/** Vide les trois tables entre deux tests (base de test uniquement). */
+/** Vide toutes les tables entre deux tests (base de test uniquement). */
 export async function resetDatabase(): Promise<void> {
-  await ownerPool().query('TRUNCATE expense_notes, users, companies RESTART IDENTITY CASCADE')
+  await ownerPool().query(
+    'TRUNCATE outbox, notifications, receipt_suggestions, expense_notes, users, companies RESTART IDENTITY CASCADE'
+  )
 }
 
 export async function createCompany(name = `company-${next()}`): Promise<string> {
