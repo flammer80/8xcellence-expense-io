@@ -4,8 +4,8 @@ import { InvalidInputError } from './errors'
  * Montant d'une note de frais, stocké en centimes entiers pour éviter les
  * erreurs d'arrondi des flottants (la base stocke un `numeric(10, 2)`).
  *
- * La devise n'est pas encore modélisée : tous les montants sont en euros
- * (constat DAT-01, migration prévue à l'étape « schéma et soumission »).
+ * La devise n'est pas encore modélisée : tous les montants sont en euros. La
+ * colonne `expense_notes.currency` existe déjà (migration 0003, défaut `EUR`).
  */
 export class Money {
   private constructor(private readonly cents: number) {}

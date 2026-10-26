@@ -14,10 +14,12 @@ export interface ExpenseNoteProps {
   id: string
   /** Auteur de la note. */
   userId: string
+  /** Entreprise de l'auteur : la note ne la quitte jamais (règle n°7). */
+  companyId: string
   amount: Money
   expenseDate: ExpenseDate
   description: string
-  /** Clé de l'objet reçu dans le stockage ; ne doit pas sortir de l'API à terme (ARC-07). */
+  /** Clé de l'objet reçu dans le stockage (`ReceiptKey`) ; ne doit pas sortir de l'API à terme (ARC-07). */
   receiptKey: string
   status: ExpenseNoteStatus
   createdAt: Date
@@ -47,6 +49,10 @@ export class ExpenseNote {
 
   get userId(): string {
     return this.props.userId
+  }
+
+  get companyId(): string {
+    return this.props.companyId
   }
 
   get amount(): Money {
@@ -83,6 +89,38 @@ export class ExpenseNote {
 
   get rejectionReason(): string | null {
     return this.props.rejectionReason
+  }
+
+  /**
+   * Nouvelle note, en attente de décision.
+   * @throws InvalidInputError si le montant n'est pas strictement positif ou
+   *   si la description est vide.
+   */
+  static submit(props: {
+    id: string
+    userId: string
+    companyId: string
+    amount: Money
+    expenseDate: ExpenseDate
+    description: string
+    receiptKey: string
+    createdAt: Date
+  }): ExpenseNote {
+    if (!props.amount.isPositive()) {
+      throw new InvalidInputError('amount', 'doit être strictement positif')
+    }
+    const description = props.description.trim()
+    if (description.length === 0) {
+      throw new InvalidInputError('description', 'ne peut pas être vide')
+    }
+    return new ExpenseNote({
+      ...props,
+      description,
+      status: 'pending',
+      decidedBy: null,
+      decidedAt: null,
+      rejectionReason: null,
+    })
   }
 
   canBeDecided(): boolean {

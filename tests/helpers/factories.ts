@@ -1,5 +1,5 @@
 import type { UserRole } from '@/domain/User'
-import { getPool } from '@/lib/db'
+import { ownerPool } from './owner-pool'
 
 export type Role = UserRole
 
@@ -21,11 +21,11 @@ const next = () => ++sequence
 
 /** Vide les trois tables entre deux tests (base de test uniquement). */
 export async function resetDatabase(): Promise<void> {
-  await getPool().query('TRUNCATE expense_notes, users, companies RESTART IDENTITY CASCADE')
+  await ownerPool().query('TRUNCATE expense_notes, users, companies RESTART IDENTITY CASCADE')
 }
 
 export async function createCompany(name = `company-${next()}`): Promise<string> {
-  const result = await getPool().query<{ id: string }>(
+  const result = await ownerPool().query<{ id: string }>(
     'INSERT INTO companies (name, email_domain) VALUES ($1, $2) RETURNING id',
     [name, `${name}.test`]
   )
@@ -39,7 +39,7 @@ export async function createUser(
 ): Promise<TestUser> {
   const n = next()
   const email = `${role}-${n}@test.local`
-  const result = await getPool().query<{ id: string }>(
+  const result = await ownerPool().query<{ id: string }>(
     `INSERT INTO users (company_id, name, email, password_hash, role, manager_id)
      VALUES ($1, $2, $3, 'not-a-real-hash', $4, $5) RETURNING id`,
     [companyId, options.name ?? `${role} ${n}`, email, role, options.managerId ?? null]
@@ -48,7 +48,7 @@ export async function createUser(
 }
 
 export async function setManager(userId: string, managerId: string | null): Promise<void> {
-  await getPool().query('UPDATE users SET manager_id = $1 WHERE id = $2', [managerId, userId])
+  await ownerPool().query('UPDATE users SET manager_id = $1 WHERE id = $2', [managerId, userId])
 }
 
 export async function createNote(
@@ -62,9 +62,9 @@ export async function createNote(
 ): Promise<TestNote> {
   const n = next()
   const receiptKey = `receipts/test-${n}.png`
-  const result = await getPool().query<{ id: string }>(
-    `INSERT INTO expense_notes (user_id, amount, expense_date, description, receipt_key, status, created_at)
-     VALUES ($1, $2, '2026-10-01', $3, $4, $5, COALESCE($6::timestamptz, now()))
+  const result = await ownerPool().query<{ id: string }>(
+    `INSERT INTO expense_notes (user_id, company_id, amount, expense_date, description, receipt_key, status, created_at)
+     VALUES ($1, (SELECT company_id FROM users WHERE id = $1), $2, '2026-10-01', $3, $4, $5, COALESCE($6::timestamptz, now()))
      RETURNING id`,
     [
       userId,
@@ -79,7 +79,7 @@ export async function createNote(
 }
 
 export async function getNoteStatus(noteId: string): Promise<string> {
-  const result = await getPool().query<{ status: string }>(
+  const result = await ownerPool().query<{ status: string }>(
     'SELECT status FROM expense_notes WHERE id = $1',
     [noteId]
   )
@@ -87,7 +87,7 @@ export async function getNoteStatus(noteId: string): Promise<string> {
 }
 
 export async function getManagerId(userId: string): Promise<string | null> {
-  const result = await getPool().query<{ manager_id: string | null }>(
+  const result = await ownerPool().query<{ manager_id: string | null }>(
     'SELECT manager_id FROM users WHERE id = $1',
     [userId]
   )
@@ -109,11 +109,20 @@ export async function createOrg(name?: string) {
 
 /** Piste d'audit enregistrée pour une note (colonnes ajoutées par la migration 0002). */
 export async function getNoteDecision(noteId: string) {
-  const result = await getPool().query<{
+  const result = await ownerPool().query<{
     status: string
     decided_by: string | null
     decided_at: Date | null
     rejection_reason: string | null
   }>('SELECT status, decided_by, decided_at, rejection_reason FROM expense_notes WHERE id = $1', [noteId])
   return result.rows[0]
+}
+
+/** Notes de frais en base d'un auteur, avec leur entreprise et leur clé de reçu. */
+export async function getNotesOf(userId: string) {
+  const result = await ownerPool().query<{ id: string; company_id: string; receipt_key: string }>(
+    'SELECT id, company_id, receipt_key FROM expense_notes WHERE user_id = $1',
+    [userId]
+  )
+  return result.rows
 }

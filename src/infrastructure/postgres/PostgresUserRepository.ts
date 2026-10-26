@@ -1,6 +1,6 @@
 import type { UserRepository } from '@/application/ports/UserRepository'
 import { User, type UserRole } from '@/domain/User'
-import { getPool } from '@/lib/db'
+import { withUserScope } from '@/lib/db'
 
 interface UserRow {
   id: string
@@ -23,20 +23,24 @@ function toUser(row: UserRow): User {
 }
 
 /**
- * Utilisateurs stockés dans Postgres. La table `users` n'a pas encore de
- * policy RLS (prévue avec l'isolation par entreprise, étape 4) : ces lectures
- * passent par le pool.
+ * Utilisateurs stockés dans Postgres. Chaque requête passe par
+ * `withUserScope` : la policy RLS de `users` limite la lecture à l'entreprise
+ * de l'acteur.
  */
 export class PostgresUserRepository implements UserRepository {
-  async findById(userId: string): Promise<User | null> {
-    const result = await getPool().query<UserRow>(`SELECT ${COLUMNS} FROM users WHERE id = $1`, [userId])
-    return result.rows[0] ? toUser(result.rows[0]) : null
+  async findById(userId: string, actorId: string): Promise<User | null> {
+    return withUserScope(actorId, async (client) => {
+      const result = await client.query<UserRow>(`SELECT ${COLUMNS} FROM users WHERE id = $1`, [userId])
+      return result.rows[0] ? toUser(result.rows[0]) : null
+    })
   }
 
-  async listByCompany(companyId: string): Promise<User[]> {
-    const result = await getPool().query<UserRow>(`SELECT ${COLUMNS} FROM users WHERE company_id = $1`, [
-      companyId,
-    ])
-    return result.rows.map(toUser)
+  async listByCompany(companyId: string, actorId: string): Promise<User[]> {
+    return withUserScope(actorId, async (client) => {
+      const result = await client.query<UserRow>(`SELECT ${COLUMNS} FROM users WHERE company_id = $1`, [
+        companyId,
+      ])
+      return result.rows.map(toUser)
+    })
   }
 }

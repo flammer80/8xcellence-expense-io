@@ -8,6 +8,10 @@ export class InMemoryReceiptStorage implements ReceiptStorage {
     this.files.set(key, { body, contentType })
   }
 
+  async delete(key: string): Promise<void> {
+    this.files.delete(key)
+  }
+
   async getSignedUrl(key: string, expiresInSeconds = 300): Promise<string> {
     return `memory://${key}?expires=${expiresInSeconds}`
   }

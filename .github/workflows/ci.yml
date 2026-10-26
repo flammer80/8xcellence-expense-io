@@ -24,7 +24,9 @@ jobs:
           --health-retries 10
 
     env:
-      # Base recréée par tests/helpers/global-setup.ts à chaque exécution.
+      # Base recréée par tests/helpers/global-setup.ts à chaque exécution, avec
+      # le rôle propriétaire ; l'application y est testée avec le rôle
+      # applicatif `expense_app`, soumis à la RLS (tests/helpers/test-database.ts).
       TEST_DATABASE_URL: postgres://expense:expense@localhost:5433/expense_io_test
 
     steps:

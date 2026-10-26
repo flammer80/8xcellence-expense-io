@@ -4,6 +4,9 @@
 // vrai reçu uploadé) — pour qu'il n'y ait aucune étape manuelle (signup,
 // promotion de rôle, soumission d'une note) avant de pouvoir naviguer.
 // Idempotent : relançable sans dupliquer les comptes ni les notes.
+// Il se connecte avec le rôle propriétaire (MIGRATION_DATABASE_URL) : c'est un
+// script d'administration, pas l'application, il n'est pas soumis à la RLS.
+import { randomUUID } from 'node:crypto'
 import bcrypt from 'bcryptjs'
 import { config as loadEnv } from 'dotenv'
 import { Pool } from 'pg'
@@ -23,7 +26,11 @@ if (!domain) {
   throw new Error(`Email RH invalide : "${hrEmail}"`)
 }
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL })
+const connectionString = process.env.MIGRATION_DATABASE_URL
+if (!connectionString) {
+  throw new Error('MIGRATION_DATABASE_URL manquante : lancez `make env` (voir .env.example).')
+}
+const pool = new Pool({ connectionString })
 
 // Un PNG 1x1 valide (pas juste des octets arbitraires) : "voir le reçu"
 // affiche une vraie image dans le navigateur plutôt qu'un fichier corrompu.
@@ -66,25 +73,25 @@ async function upsertUser(email, name, password, role, companyId, managerId = nu
   return inserted.rows[0].id
 }
 
-async function seedExpenseNote(userId, description, amount) {
+// Même ordre que `SubmitExpenseNote` (ADR 0006) : la clé dérive de l'UUID de
+// la note, le reçu part d'abord, puis la note est insérée en une écriture.
+async function seedExpenseNote(userId, companyId, description, amount) {
   const existing = await pool.query(
     'SELECT id FROM expense_notes WHERE user_id = $1 AND description = $2',
     [userId, description]
   )
   if (existing.rows[0]) return
 
-  const inserted = await pool.query(
-    `INSERT INTO expense_notes (user_id, amount, expense_date, description, receipt_key)
-     VALUES ($1, $2, CURRENT_DATE, $3, '')
-     RETURNING id, receipt_seq`,
-    [userId, amount, description]
-  )
-  const { id, receipt_seq: receiptSeq } = inserted.rows[0]
-  const receiptKey = `receipts/${receiptSeq}.png`
+  const id = randomUUID()
+  const receiptKey = `receipts/${companyId}/${id}.png`
   await s3.send(
     new PutObjectCommand({ Bucket: bucket, Key: receiptKey, Body: RECEIPT_PNG, ContentType: 'image/png' })
   )
-  await pool.query('UPDATE expense_notes SET receipt_key = $1 WHERE id = $2', [receiptKey, id])
+  await pool.query(
+    `INSERT INTO expense_notes (id, user_id, company_id, amount, expense_date, description, receipt_key)
+     VALUES ($1, $2, $3, $4, CURRENT_DATE, $5, $6)`,
+    [id, userId, companyId, amount, description, receiptKey]
+  )
   console.log(`Note de frais "${description}" créée pour ${userId} (${id}).`)
 }
 
@@ -94,8 +101,8 @@ try {
   const managerId = await upsertUser(managerEmail, 'Manager', managerPassword, 'manager', companyId)
   const employeeId = await upsertUser(employeeEmail, 'Demo', employeePassword, 'employee', companyId, managerId)
 
-  await seedExpenseNote(employeeId, 'Taxi aéroport (seed)', 42.5)
-  await seedExpenseNote(managerId, 'Café client (seed)', 5.9)
+  await seedExpenseNote(employeeId, companyId, 'Taxi aéroport (seed)', 42.5)
+  await seedExpenseNote(managerId, companyId, 'Café client (seed)', 5.9)
 
   console.log('')
   console.log('Comptes de démonstration prêts :')

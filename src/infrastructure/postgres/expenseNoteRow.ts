@@ -6,6 +6,7 @@ import { Money } from '@/domain/Money'
 export interface ExpenseNoteRow {
   id: string
   user_id: string
+  company_id: string
   /** `numeric(10, 2)` : `pg` le renvoie en chaîne pour ne pas perdre de précision. */
   amount: string
   /** `date` : chaîne `YYYY-MM-DD` (voir le parseur de type dans `lib/db.ts`). */
@@ -27,6 +28,7 @@ export function toExpenseNote(row: ExpenseNoteRow): ExpenseNote {
   return new ExpenseNote({
     id: row.id,
     userId: row.user_id,
+    companyId: row.company_id,
     amount: Money.fromDecimal(row.amount),
     expenseDate: ExpenseDate.parse(row.expense_date),
     description: row.description,

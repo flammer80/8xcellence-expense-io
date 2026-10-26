@@ -1,5 +1,5 @@
 import { auth } from '@/lib/auth'
-import { getPool } from '@/lib/db'
+import { withUserScope } from '@/lib/db'
 import { respondError } from '@/lib/errors'
 
 export async function GET() {
@@ -9,12 +9,14 @@ export async function GET() {
       return Response.json({ error: 'Unauthorized' }, { status: 403 })
     }
 
-    const result = await getPool().query(
-      `SELECT id, name, email, role, manager_id FROM users
-       WHERE role IN ('employee', 'manager')
-         AND company_id = (SELECT company_id FROM users WHERE id = $1)
-       ORDER BY name`,
-      [session.user.id]
+    const result = await withUserScope(session.user.id, (client) =>
+      client.query(
+        `SELECT id, name, email, role, manager_id FROM users
+         WHERE role IN ('employee', 'manager')
+           AND company_id = (SELECT company_id FROM users WHERE id = $1)
+         ORDER BY name`,
+        [session.user.id]
+      )
     )
     return Response.json(
       result.rows.map((row) => ({

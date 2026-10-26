@@ -2,7 +2,8 @@ import NextAuth from 'next-auth'
 import Credentials from 'next-auth/providers/credentials'
 import bcrypt from 'bcryptjs'
 import type { UserRole } from '@/domain/User'
-import { getPool } from '@/lib/db'
+import { normalizeEmail } from '@/domain/Email'
+import { findCredentialsByEmail } from '@/infrastructure/postgres/accounts'
 
 // Valeurs à ne jamais accepter comme secret de signature : celle d'exemple de
 // .env.example, et l'ancien secret qui était versionné dans ce fichier
@@ -41,21 +42,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         password: { label: 'Mot de passe', type: 'password' },
       },
       async authorize(credentials) {
-        const email = typeof credentials?.email === 'string' ? credentials.email : null
+        const email = typeof credentials?.email === 'string' ? normalizeEmail(credentials.email) : null
         const password =
           typeof credentials?.password === 'string' ? credentials.password : null
         if (!email || !password) return null
 
-        const result = await getPool().query<{
-          id: string
-          email: string
-          password_hash: string
-          role: UserRole
-        }>('SELECT id, email, password_hash, role FROM users WHERE email = $1', [email])
-        const user = result.rows[0]
+        const user = await findCredentialsByEmail(email)
         if (!user) return null
 
-        const passwordMatches = await bcrypt.compare(password, user.password_hash)
+        const passwordMatches = await bcrypt.compare(password, user.passwordHash)
         if (!passwordMatches) return null
 
         return { id: user.id, email: user.email, role: user.role }
