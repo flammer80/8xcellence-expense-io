@@ -28,6 +28,11 @@ export class InMemoryExpenseNoteRepository implements ExpenseNoteRepository {
       .sort((a, b) => sign * compare(a, b))
   }
 
+  async add(note: ExpenseNote): Promise<ExpenseNote> {
+    this.notes.set(note.id, note)
+    return note
+  }
+
   async findById(noteId: string): Promise<ExpenseNote | null> {
     return this.notes.get(noteId) ?? null
   }

@@ -2,7 +2,8 @@
 
 import bcrypt from 'bcryptjs'
 import { AuthError } from 'next-auth'
-import { getPool } from '@/lib/db'
+import { normalizeEmail } from '@/domain/Email'
+import { EmailAlreadyRegisteredError, registerUser } from '@/infrastructure/postgres/accounts'
 import { signIn, signOut } from '@/lib/auth'
 
 export interface AuthFormState {
@@ -17,13 +18,15 @@ export async function signup(
   formData: FormData
 ): Promise<AuthFormState> {
   const name = formData.get('name')
-  const email = formData.get('email')
+  const rawEmail = formData.get('email')
   const password = formData.get('password')
 
-  const emailMatch = typeof email === 'string' ? EMAIL_PATTERN.exec(email) : null
+  const email = typeof rawEmail === 'string' ? normalizeEmail(rawEmail) : null
+  const emailMatch = email ? EMAIL_PATTERN.exec(email) : null
   if (
     typeof name !== 'string' ||
     name.trim().length === 0 ||
+    !email ||
     !emailMatch ||
     typeof password !== 'string' ||
     password.length < MIN_PASSWORD_LENGTH
@@ -33,40 +36,15 @@ export async function signup(
     }
   }
 
-  const existing = await getPool().query('SELECT id FROM users WHERE email = $1', [email])
-  if ((existing.rowCount ?? 0) > 0) {
-    return { error: 'Un compte existe déjà avec cet email.' }
-  }
-
-  const domain = emailMatch[1].toLowerCase()
-  const companyName = domain.split('.')[0]
-
-  const insertedCompany = await getPool().query<{ id: string }>(
-    `INSERT INTO companies (name, email_domain) VALUES ($1, $2)
-     ON CONFLICT (email_domain) DO NOTHING
-     RETURNING id`,
-    [companyName, domain]
-  )
-
-  let companyId: string
-  let role: 'employee' | 'hr_admin'
-  if (insertedCompany.rows[0]) {
-    companyId = insertedCompany.rows[0].id
-    role = 'hr_admin'
-  } else {
-    const existingCompany = await getPool().query<{ id: string }>(
-      'SELECT id FROM companies WHERE email_domain = $1',
-      [domain]
-    )
-    companyId = existingCompany.rows[0].id
-    role = 'employee'
-  }
-
+  // Entreprise déduite du domaine, compte et entreprise créés en une seule
+  // transaction (`app_register_user`, migration 0004).
   const passwordHash = await bcrypt.hash(password, 12)
-  await getPool().query(
-    'INSERT INTO users (name, email, password_hash, company_id, role) VALUES ($1, $2, $3, $4, $5)',
-    [name.trim(), email, passwordHash, companyId, role]
-  )
+  try {
+    await registerUser({ name: name.trim(), email, passwordHash })
+  } catch (error) {
+    if (error instanceof EmailAlreadyRegisteredError) return { error: error.message }
+    throw error
+  }
 
   try {
     await signIn('credentials', { email, password, redirectTo: '/expenses' })

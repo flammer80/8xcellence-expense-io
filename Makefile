@@ -3,7 +3,7 @@ SHELL := /bin/bash
 
 COMPOSE := docker compose
 
-.PHONY: help install env up down restart logs migrate ensure-bucket seed dev build start lint typecheck test clean
+.PHONY: help install env up down restart logs migrate ensure-app-role ensure-bucket seed dev build start lint typecheck test clean
 
 help: ## Affiche cette aide
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -16,6 +16,11 @@ env: ## Crée .env depuis .env.example si absent, génère AUTH_SECRET si besoin
 	@if grep -q '^AUTH_SECRET=changeme' .env; then \
 		sed -i.bak "s|^AUTH_SECRET=.*|AUTH_SECRET=$$(openssl rand -base64 32)|" .env && rm -f .env.bak; \
 		echo "AUTH_SECRET généré dans .env"; \
+	fi
+	@if ! grep -q '^MIGRATION_DATABASE_URL=' .env; then \
+		sed -i.bak '/^DATABASE_URL=/d' .env && rm -f .env.bak; \
+		grep -E '^(DATABASE_URL|MIGRATION_DATABASE_URL)=' .env.example >> .env; \
+		echo ".env mis à jour : rôle applicatif (DATABASE_URL) et rôle propriétaire (MIGRATION_DATABASE_URL)"; \
 	fi
 
 up: env ## Démarre Postgres + LocalStack (Docker) et attend qu'ils soient prêts
@@ -40,13 +45,16 @@ logs: ## Suit les logs de Postgres + LocalStack
 migrate: ## Applique les migrations SQL (idempotent)
 	npm run migrate:up
 
+ensure-app-role: ## Ouvre la connexion du rôle applicatif expense_app (mot de passe tiré de DATABASE_URL)
+	npm run ensure-app-role
+
 ensure-bucket: ## Crée le bucket S3 "receipts" s'il n'existe pas déjà
 	npm run ensure-bucket
 
 seed: ## Peuple une base de démonstration navigable (RH, manager, employé, notes de frais)
 	npm run seed
 
-dev: install up migrate ensure-bucket seed ## Tout lancer : install, Docker, migrations, bucket, seed, puis le serveur de dev
+dev: install up migrate ensure-app-role ensure-bucket seed ## Tout lancer : install, Docker, migrations, rôle applicatif, bucket, seed, puis le serveur de dev
 	npm run dev
 
 build: ## Build de production

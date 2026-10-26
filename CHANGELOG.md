@@ -28,6 +28,26 @@ Voir `docs/adr/0003-politique-d-approbation.md` et `docs/adr/0004-route-de-decis
 - **Identifiant invalide** : un id de note qui n'est pas un UUID répond 404 sur les routes de décision et de reçu, au lieu d'une erreur 500.
 - **Schéma** : la migration `1700000000002_record-decision.sql` ajoute `decided_by`, `decided_at` et `rejection_reason`. Ces champs ne sont pas encore exposés dans les réponses.
 
+### Schéma, isolation et soumission (étape 4)
+
+Voir `docs/adr/0005-isolation-des-entreprises-en-base.md` et `docs/adr/0006-soumission-atomique.md`.
+
+- **Isolation en base** (SEC-03) : l'application se connecte avec le rôle `expense_app` (`NOSUPERUSER NOBYPASSRLS`). Les policies RLS filtrent les 3 tables par entreprise. Les migrations et le seed utilisent `MIGRATION_DATABASE_URL`. `make env` complète un `.env` existant, et `make dev` crée le rôle (`make ensure-app-role`).
+- **`POST /api/expense-notes`** (ARC-06) : aucune note n'est créée si l'envoi du reçu échoue. La réponse 201 porte l'en-tête `Location`. `receiptKey` devient opaque : `receipts/{companyId}/{noteId}.{ext}`, au lieu de `receipts/{n}.{ext}`.
+- **Validation** (S9) : répondent maintenant **400** au lieu de 500 ou d'être acceptés :
+  - une date qui n'est pas un jour réel (`2026-13-45`, `hier`) ;
+  - un reçu dont le contenu ne correspond pas au type annoncé (vérification des premiers octets) ;
+  - un montant à plus de deux décimales.
+- **`POST /api/expense-notes/{id}/decision`** : un manager qui n'est pas le manager direct reçoit **404** au lieu de 403, car la note lui est cachée. Le 403 reste renvoyé pour sa propre note, ou pour un RH face à la note d'un employé rattaché.
+- **Emails** : insensibles à la casse (`citext`) et normalisés en minuscules. On se connecte avec `Alice@Acme.fr` comme avec `alice@acme.fr`, et un doublon qui ne diffère que par la casse est refusé.
+- **Inscription** : le compte et l'entreprise sont créés en une transaction (DAT-02). La règle de rattachement par domaine est inchangée.
+- **Schéma** : migration `1700000000003_tenant-schema.sql`, qui ajoute :
+  - `company_id` sur `expense_notes`, avec une clé étrangère composite vers l'auteur ;
+  - `currency` (défaut `EUR`, non exposée) et `updated_at` ;
+  - quatre index.
+
+  Elle supprime aussi `receipt_seq`.
+
 ### Architecture (sans changement de l'API)
 
 - Noyau hexagonal (`docs/adr/0002-architecture-hexagonale.md`). `GET /api/expense-notes` passe par le cas d'usage `ListMyExpenseNotes`. Les 7 routes qui renvoient des notes partagent un seul mapping. Réponses, codes et tri sont inchangés.

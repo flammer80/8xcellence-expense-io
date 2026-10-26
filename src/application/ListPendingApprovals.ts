@@ -28,10 +28,10 @@ export class ListPendingApprovals {
   ) {}
 
   async execute({ actorId }: ListPendingApprovalsInput): Promise<ExpenseNote[]> {
-    const actor = await this.users.findById(actorId)
+    const actor = await this.users.findById(actorId, actorId)
     if (!actor) return []
 
-    const colleagues = await this.users.listByCompany(actor.companyId)
+    const colleagues = await this.users.listByCompany(actor.companyId, actorId)
     const authorIds = colleagues
       .filter((author) => ApprovalPolicy.canDecide(actor, author))
       .map((author) => author.id)

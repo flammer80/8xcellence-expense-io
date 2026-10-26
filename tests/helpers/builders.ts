@@ -10,6 +10,7 @@ export function anExpenseNote(
   overrides: {
     id?: string
     userId?: string
+    companyId?: string
     amount?: number
     expenseDate?: string
     status?: ExpenseNoteStatus
@@ -20,6 +21,7 @@ export function anExpenseNote(
   return new ExpenseNote({
     id: overrides.id ?? `note-${n}`,
     userId: overrides.userId ?? 'user-1',
+    companyId: overrides.companyId ?? 'acme',
     amount: Money.fromDecimal(overrides.amount ?? 10),
     expenseDate: ExpenseDate.parse(overrides.expenseDate ?? '2026-10-01'),
     description: `note ${n}`,

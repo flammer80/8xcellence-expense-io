@@ -18,6 +18,14 @@ export interface ExpenseNoteRepository {
    */
   listByOwner(ownerId: string, sort: ExpenseNoteSort): Promise<ExpenseNote[]>
 
+  /**
+   * Insère une nouvelle note, en une seule écriture (avec sa clé de reçu).
+   * @returns la note telle qu'enregistrée.
+   * @throws toute erreur de la base (contrainte, policy RLS) : l'appelant
+   *   compense alors l'envoi du reçu.
+   */
+  add(note: ExpenseNote, actorId: string): Promise<ExpenseNote>
+
   /** La note `noteId`, ou `null` si elle n'existe pas. */
   findById(noteId: string, actorId: string): Promise<ExpenseNote | null>
 

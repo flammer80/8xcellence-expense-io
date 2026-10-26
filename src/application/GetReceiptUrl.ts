@@ -31,9 +31,9 @@ export class GetReceiptUrl {
   ) {}
 
   async execute({ noteId, actorId }: GetReceiptUrlInput): Promise<string> {
-    const actor = await this.users.findById(actorId)
+    const actor = await this.users.findById(actorId, actorId)
     const note = actor ? await this.notes.findById(noteId, actorId) : null
-    const author = note ? await this.users.findById(note.userId) : null
+    const author = note ? await this.users.findById(note.userId, actorId) : null
     if (!actor || !note || !author || !ApprovalPolicy.canViewReceipt(actor, author)) {
       throw new NotFoundError('Note de frais', noteId)
     }

@@ -83,12 +83,21 @@ describe('POST /api/expense-notes/{id}/decision', () => {
     expect(await getNoteStatus(note.id)).toBe('pending')
   })
 
-  it("403 pour un manager de la même entreprise qui n'est pas le manager direct", async () => {
+  it("403 pour un RH sur la note d'un employé qui a un manager direct", async () => {
+    const org = await createOrg()
+    const note = await createNote(org.employee.id)
+    signInAs(org.hr)
+
+    await expectProblem(await call(note.id, { decision: 'approved' }), 403, 'forbidden')
+    expect(await getNoteStatus(note.id)).toBe('pending')
+  })
+
+  it("404 pour un manager qui n'est pas le manager direct : la RLS lui cache la note (ADR 0005)", async () => {
     const org = await createOrg()
     const note = await createNote(org.employee.id)
     signInAs(org.rootManager)
 
-    await expectProblem(await call(note.id, { decision: 'approved' }), 403, 'forbidden')
+    await expectProblem(await call(note.id, { decision: 'approved' }), 404, 'not-found')
     expect(await getNoteStatus(note.id)).toBe('pending')
   })
 

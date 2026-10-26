@@ -37,6 +37,29 @@ export class PostgresExpenseNoteRepository implements ExpenseNoteRepository {
     })
   }
 
+  async add(note: ExpenseNote, actorId: string): Promise<ExpenseNote> {
+    return withUserScope(actorId, async (client) => {
+      const result = await client.query<ExpenseNoteRow>(
+        `INSERT INTO expense_notes
+           (id, user_id, company_id, amount, expense_date, description, receipt_key, status, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         RETURNING *`,
+        [
+          note.id,
+          note.userId,
+          note.companyId,
+          note.amount.toDecimal(),
+          note.expenseDate.toString(),
+          note.description,
+          note.receiptKey,
+          note.status,
+          note.createdAt,
+        ]
+      )
+      return toExpenseNote(result.rows[0])
+    })
+  }
+
   async findById(noteId: string, actorId: string): Promise<ExpenseNote | null> {
     if (!UUID.test(noteId)) return null
     return withUserScope(actorId, async (client) => {

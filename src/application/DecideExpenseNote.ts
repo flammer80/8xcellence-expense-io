@@ -40,13 +40,13 @@ export class DecideExpenseNote {
       throw new InvalidInputError('reason', "un motif n'accompagne qu'un rejet")
     }
 
-    const actor = await this.users.findById(actorId)
+    const actor = await this.users.findById(actorId, actorId)
     if (!actor) throw new NotFoundError('Utilisateur', actorId)
 
     const note = await this.notes.findById(noteId, actorId)
     if (!note) throw new NotFoundError('Note de frais', noteId)
 
-    const author = await this.users.findById(note.userId)
+    const author = await this.users.findById(note.userId, actorId)
     if (!author) throw new NotFoundError('Note de frais', noteId)
 
     // L'autorisation passe avant l'état : on ne révèle pas qu'une note qu'on

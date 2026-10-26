@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { GET, POST } from '@/app/api/expense-notes/route'
 import { GET as getReceiptUrl } from '@/app/api/expense-notes/[id]/receipt-url/route'
 import { POST as suggest } from '@/app/api/expense-notes/receipt-suggestion/route'
-import { uploadReceipt } from '@/lib/storage'
+import { deleteReceipt, uploadReceipt } from '@/lib/storage'
 import { suggestFields } from '@/lib/ocr'
-import { createNote, createOrg } from '../helpers/factories'
+import { createNote, createOrg, getNotesOf } from '../helpers/factories'
 import { noteForm, params, pngFile, request } from '../helpers/http'
+
+const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
 import { signInAs, signOut } from '../helpers/session'
 
 // Caractérisation : fige le comportement observable actuel des routes
@@ -60,8 +62,28 @@ describe('POST /api/expense-notes', () => {
       description: 'Taxi aéroport',
       status: 'pending',
     })
-    expect(body.receiptKey).toMatch(/^receipts\/\d+\.png$/)
+    // Clé opaque, préfixée par l'entreprise (ADR 0006) ; l'ancienne clé
+    // `receipts/{seq}.png` révélait le volume de notes (DAT-03).
+    expect(body.receiptKey).toMatch(new RegExp(`^receipts/${org.companyId}/${body.id}\\.png$`))
+    expect(body.id).toMatch(new RegExp(`^${UUID}$`))
+    expect(response.headers.get('Location')).toBe(`/api/expense-notes/${body.id}`)
     expect(uploadReceipt).toHaveBeenCalledWith(body.receiptKey, expect.any(Buffer), 'image/png')
+    expect(await getNotesOf(org.employee.id)).toEqual([
+      { id: body.id, company_id: org.companyId, receipt_key: body.receiptKey },
+    ])
+  })
+
+  it("ne crée aucune note si l'envoi du reçu échoue (ARC-06)", async () => {
+    const org = await createOrg()
+    signInAs(org.employee)
+    const upload = uploadReceipt as unknown as { mockRejectedValueOnce: (error: Error) => void }
+    upload.mockRejectedValueOnce(new Error('S3 indisponible'))
+
+    const response = await POST(request('/api/expense-notes', { method: 'POST', body: noteForm({}) }))
+
+    expect(response.status).toBe(500)
+    expect(await getNotesOf(org.employee.id)).toEqual([])
+    expect(deleteReceipt).not.toHaveBeenCalled()
   })
 
   it('répond 401 sans session', async () => {
@@ -82,6 +104,35 @@ describe('POST /api/expense-notes', () => {
     )
     expect(response.status).toBe(400)
     expect(await response.json()).toEqual({ error: 'Champs invalides' })
+  })
+
+  it.each([
+    ['mois inexistant', '2026-13-45'],
+    ['format libre', 'hier'],
+  ])('répond 400 si la date est invalide (%s)', async (_label, expenseDate) => {
+    const org = await createOrg()
+    signInAs(org.employee)
+    const response = await POST(
+      request('/api/expense-notes', { method: 'POST', body: noteForm({ expenseDate }) })
+    )
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: 'Champs invalides' })
+    expect(uploadReceipt).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['un PDF', '%PDF-1.7\n%âãÏÓ'],
+    ['du texte', 'pas une image du tout'],
+  ])('répond 400 si le contenu est %s déclaré comme PNG (S9)', async (_label, content) => {
+    const org = await createOrg()
+    signInAs(org.employee)
+    const fake = new File([Buffer.from(content)], 'receipt.png', { type: 'image/png' })
+    const response = await POST(
+      request('/api/expense-notes', { method: 'POST', body: noteForm({ receipt: fake }) })
+    )
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: 'Type de fichier non autorisé pour le reçu' })
+    expect(await getNotesOf(org.employee.id)).toEqual([])
   })
 
   it('répond 400 pour un type de fichier non autorisé', async () => {

@@ -1,14 +1,14 @@
 openapi: 3.1.0
 info:
   title: Expense.io API
-  version: 1.1.0
+  version: 1.2.0
   description: |
     Contrat de l'API d'Expense.io, source de vérité (contract first, CLAUDE.md §10).
     Il est mis à jour **avant** chaque changement de route.
 
-    Ce document couvre pour l'instant le parcours de décision (étape 3) et les
-    anciennes routes qu'il remplace ; les autres routes y entreront au fil de
-    leur migration. Les choix de style sont expliqués dans
+    Ce document couvre pour l'instant la soumission d'une note (étape 4), le
+    parcours de décision (étape 3) et les anciennes routes qu'il remplace ; les
+    autres routes y entreront au fil de leur migration. Les choix de style sont expliqués dans
     `docs/adr/0004-route-de-decision.md`.
 
     Authentification : session NextAuth (cookie `authjs.session-token`).
@@ -22,6 +22,79 @@ tags:
     description: Anciennes routes, conservées comme adaptateurs fins et dépréciées
 
 paths:
+  /api/expense-notes:
+    post:
+      tags: [notes]
+      operationId: submitExpenseNote
+      summary: Soumettre une note de frais avec son reçu
+      description: |
+        Ouvert à tous les rôles (règle n°1). La note est créée `pending`, dans
+        l'entreprise de son auteur.
+
+        Aucune note sans reçu (ADR 0006) : le reçu est déposé d'abord, sous une
+        clé dérivée de l'UUID de la note, puis la note est insérée en une seule
+        écriture. Si l'envoi échoue, rien n'est créé ; si l'insertion échoue, le
+        reçu déposé est supprimé.
+
+        Le type du reçu est vérifié sur son contenu (premiers octets), pas
+        seulement sur le type MIME annoncé.
+
+        Format historique conservé : erreurs `{ error }` (passage à RFC 9457
+        prévu à l'étape « contrat »).
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [amount, expenseDate, description, receipt]
+              properties:
+                amount:
+                  type: string
+                  description: Montant décimal strictement positif, deux décimales au plus.
+                  example: '42.50'
+                expenseDate:
+                  type: string
+                  format: date
+                  description: Jour réel du calendrier, `YYYY-MM-DD`.
+                description:
+                  type: string
+                  minLength: 1
+                receipt:
+                  type: string
+                  format: binary
+                  description: PNG, JPEG, WebP ou PDF, 10 Mo au plus.
+      responses:
+        '201':
+          description: Note créée.
+          headers:
+            Location:
+              description: URL de la note créée.
+              schema: { type: string, example: /api/expense-notes/7d0c3f0e-9b8a-4c55-9d7e-2b1f6a3c4e5d }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExpenseNote' }
+        '400':
+          description: |
+            Champ manquant ou invalide (`Champs invalides`), type de reçu refusé ou
+            contenu qui ne correspond pas au type annoncé (`Type de fichier non
+            autorisé pour le reçu`), reçu trop volumineux (`Fichier trop volumineux`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LegacyError' }
+        '401':
+          $ref: '#/components/responses/LegacyError'
+        '500':
+          description: Erreur interne, sans détail ; `correlationId` pour retrouver l'occurrence dans les logs.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error, correlationId]
+                properties:
+                  error: { type: string, example: Internal Server Error }
+                  correlationId: { type: string, format: uuid }
+
   /api/expense-notes/{id}/decision:
     post:
       tags: [notes]
@@ -62,7 +135,9 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
-          description: Même entreprise, mais l'utilisateur n'est pas le validateur désigné (ou c'est sa note).
+          description: |
+            L'utilisateur voit la note mais n'est pas son validateur désigné : sa propre
+            note, ou un RH face à la note d'un employé qui a un manager direct.
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -213,7 +288,9 @@ components:
         receiptKey:
           type: string
           deprecated: true
-          description: Détail de stockage ; retrait prévu (changement MAJOR) à l'étape « contrat ».
+          description: |
+            Détail de stockage, désormais opaque (`receipts/{companyId}/{noteId}.{ext}`) ;
+            retrait prévu (changement MAJOR) à l'étape « contrat ».
         status: { type: string, enum: [pending, approved, rejected] }
         createdAt: { type: string, format: date-time }
 
@@ -261,7 +338,10 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     NotFound:
-      description: Note inexistante, ou d'une autre entreprise.
+      description: |
+        Note inexistante, ou que l'utilisateur ne peut pas voir : autre entreprise, ou,
+        pour un manager, note qui n'est ni la sienne ni celle d'un subordonné direct.
+        On ne révèle pas son existence (ADR 0005).
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
