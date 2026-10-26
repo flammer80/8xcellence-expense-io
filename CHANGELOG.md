@@ -69,3 +69,23 @@ Voir `docs/adr/0007-asynchrone-unifie.md`. Contrat : `docs/api/openapi.yaml` (v1
 
 - Garde-fou d'architecture : `npm run lint` échoue si `src/domain/` importe hors du domaine, ou si `src/application/` importe l'infrastructure ou un framework.
 - Tests Vitest (`npm test`, `npm run test:unit`, `npm run test:integration`, `make test`) et CI GitHub Actions (lint, typecheck, tests). Voir `docs/adr/0001-strategie-de-tests.md`.
+
+### Contrat et front (étape 6)
+
+Voir `docs/adr/0008-contrat-et-front.md` et `docs/adr/0009-onboarding-et-verification-email.md`. Contrat : `docs/api/openapi.yaml` (**v2.0.0**).
+
+- **Changement cassant (MAJOR)** : `receiptKey` n'est plus renvoyé dans les notes (`GET`/`POST /api/expense-notes`, décision, files de validation, anciennes routes approve/reject). C'était un détail de stockage ; le reçu s'obtient par `GET /api/expense-notes/{id}/receipt-url`.
+- **Erreurs RFC 9457** sur `GET`/`POST /api/expense-notes` et `GET /api/expense-notes/{id}/receipt-url` : `Content-Type: application/problem+json`, avec `type`, `title`, `status`, `errors[].pointer`. **Les codes ne changent pas**, et le membre historique `error` est conservé (`Unauthorized`, `Invalid sort`, `Champs invalides`…). Une erreur 500 garde `error` et `correlationId`.
+- **Nouveau** : `GET /api/expense-notes/pending` (file de validation de l'utilisateur connecté, avec `authorName`), `GET /api/users` (annuaire, 403 hors RH), `PUT /api/users/{id}/manager` (400 corps invalide, 403 hors RH, 404 cible introuvable, **422** manager invalide ou cycle).
+- **Dépréciées, toujours disponibles** (`Deprecation`, `Link`) : `GET /api/manager/expense-notes`, `GET /api/hr/expense-notes`, `GET /api/hr/users`, `PUT /api/hr/users/{id}/manager`. Mêmes codes et même format `{ error }` ; leurs notes portent en plus `authorName`.
+- **`PUT /api/hr/users/{id}/manager`** (SEC-10) : un corps absent ou sans `managerId` (chaîne ou `null`) répond **400** `{ "error": "Invalid body" }` au lieu de détacher l'utilisateur. Deux rattachements concurrents qui formeraient un cycle ne passent plus tous les deux.
+- **Inscription** (SEC-06, décision R9) :
+  - les adresses de messageries grand public (gmail.com, outlook.fr…) sont refusées ;
+  - le compte reste **inactif** jusqu'au clic sur le lien de confirmation (24 h), envoyé via l'outbox ; en local, le lien est écrit dans les logs du serveur ;
+  - **plus de connexion automatique** après l'inscription ;
+  - nouvelle page `/verify-email`.
+  Les comptes existants sont réputés vérifiés.
+- **Limitation des tentatives** (SEC-11) : 10 connexions par email sur 15 minutes, 5 inscriptions par IP et par heure. Au-delà : « Trop de tentatives ».
+- **Écrans** : le manager et le RH voient le nom de l'auteur de chaque note au lieu d'un identifiant tronqué. L'espace RH utilise les nouvelles routes.
+- **Configuration** : nouvelle variable facultative `APP_URL` (lien des emails). Paquet renommé `expense-io`.
+- **Schéma** : migration `1700000000006_email-verification-rate-limit.sql` (`users.email_verified_at`, tables `email_verifications` et `auth_attempts`, fonctions `app_verify_email` et `app_consume_auth_attempt`).
