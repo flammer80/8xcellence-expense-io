@@ -1,9 +1,8 @@
 /**
  * Stockage des reçus (fichiers justificatifs).
  *
- * Implémentation : `S3ReceiptStorage`. Pas encore branché sur un cas
- * d'usage : il le sera par `GetReceiptUrl` (étape 3) et `SubmitExpenseNote`
- * (étape 4).
+ * Implémentation : `S3ReceiptStorage`. Utilisé par `GetReceiptUrl` ; le sera
+ * aussi par `SubmitExpenseNote` (étape 4).
  */
 export interface ReceiptStorage {
   /** Dépose le fichier sous `key` ; écrase un objet existant de même clé. */

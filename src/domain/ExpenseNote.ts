@@ -1,8 +1,14 @@
-import { AlreadyDecidedError } from './errors'
+import { AlreadyDecidedError, InvalidInputError } from './errors'
 import type { ExpenseDate } from './ExpenseDate'
 import type { Money } from './Money'
 
 export type ExpenseNoteStatus = 'pending' | 'approved' | 'rejected'
+
+/** Issue d'une décision : l'état final d'une note. */
+export type ExpenseNoteDecision = Exclude<ExpenseNoteStatus, 'pending'>
+
+/** Longueur maximale d'un motif de rejet. */
+export const MAX_REJECTION_REASON_LENGTH = 1000
 
 export interface ExpenseNoteProps {
   id: string
@@ -15,6 +21,14 @@ export interface ExpenseNoteProps {
   receiptKey: string
   status: ExpenseNoteStatus
   createdAt: Date
+  /**
+   * Piste d'audit de la décision. `null` tant que la note est en attente, et
+   * pour les notes tranchées avant que la décision soit enregistrée.
+   */
+  decidedBy: string | null
+  decidedAt: Date | null
+  /** Motif facultatif, seulement pour un rejet (ADR 0003). */
+  rejectionReason: string | null
 }
 
 /**
@@ -22,7 +36,7 @@ export interface ExpenseNoteProps {
  *
  * Invariant porté ici : une note ne se tranche qu'une fois, `pending` →
  * `approved` ou `rejected` (règle métier n°5). Qui a le droit de trancher
- * relève de l'`ApprovalPolicy` (étape 3), pas de l'entité.
+ * relève de l'`ApprovalPolicy`, pas de l'entité.
  */
 export class ExpenseNote {
   constructor(private readonly props: ExpenseNoteProps) {}
@@ -59,24 +73,49 @@ export class ExpenseNote {
     return this.props.createdAt
   }
 
+  get decidedBy(): string | null {
+    return this.props.decidedBy
+  }
+
+  get decidedAt(): Date | null {
+    return this.props.decidedAt
+  }
+
+  get rejectionReason(): string | null {
+    return this.props.rejectionReason
+  }
+
   canBeDecided(): boolean {
     return this.props.status === 'pending'
   }
 
   /** @throws AlreadyDecidedError si la note n'est plus en attente. */
-  approve(): ExpenseNote {
-    return this.decide('approved')
+  approve(decidedBy: string, decidedAt: Date): ExpenseNote {
+    return this.decide('approved', decidedBy, decidedAt, null)
   }
 
-  /** @throws AlreadyDecidedError si la note n'est plus en attente. */
-  reject(): ExpenseNote {
-    return this.decide('rejected')
+  /**
+   * @param reason motif facultatif ; une chaîne vide équivaut à aucun motif.
+   * @throws AlreadyDecidedError si la note n'est plus en attente.
+   * @throws InvalidInputError si le motif dépasse `MAX_REJECTION_REASON_LENGTH`.
+   */
+  reject(decidedBy: string, decidedAt: Date, reason?: string | null): ExpenseNote {
+    const trimmed = reason?.trim() || null
+    if (trimmed && trimmed.length > MAX_REJECTION_REASON_LENGTH) {
+      throw new InvalidInputError('reason', `au plus ${MAX_REJECTION_REASON_LENGTH} caractères`)
+    }
+    return this.decide('rejected', decidedBy, decidedAt, trimmed)
   }
 
-  private decide(status: Exclude<ExpenseNoteStatus, 'pending'>): ExpenseNote {
+  private decide(
+    status: ExpenseNoteDecision,
+    decidedBy: string,
+    decidedAt: Date,
+    rejectionReason: string | null
+  ): ExpenseNote {
     if (!this.canBeDecided()) {
       throw new AlreadyDecidedError(this.props.id)
     }
-    return new ExpenseNote({ ...this.props, status })
+    return new ExpenseNote({ ...this.props, status, decidedBy, decidedAt, rejectionReason })
   }
 }

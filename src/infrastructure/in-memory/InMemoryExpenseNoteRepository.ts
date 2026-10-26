@@ -1,4 +1,5 @@
 import type { ExpenseNoteRepository } from '@/application/ports/ExpenseNoteRepository'
+import { AlreadyDecidedError } from '@/domain/errors'
 import type { ExpenseNote } from '@/domain/ExpenseNote'
 import type { ExpenseNoteSort, ExpenseNoteSortField } from '@/domain/ExpenseNoteSort'
 
@@ -25,5 +26,22 @@ export class InMemoryExpenseNoteRepository implements ExpenseNoteRepository {
     return [...this.notes.values()]
       .filter((note) => note.userId === ownerId)
       .sort((a, b) => sign * compare(a, b))
+  }
+
+  async findById(noteId: string): Promise<ExpenseNote | null> {
+    return this.notes.get(noteId) ?? null
+  }
+
+  async listPendingByAuthors(authorIds: string[]): Promise<ExpenseNote[]> {
+    return [...this.notes.values()]
+      .filter((note) => note.status === 'pending' && authorIds.includes(note.userId))
+      .sort(COMPARATOR_BY_SORT_FIELD.createdAt)
+  }
+
+  async saveDecision(note: ExpenseNote): Promise<ExpenseNote> {
+    const stored = this.notes.get(note.id)
+    if (!stored?.canBeDecided()) throw new AlreadyDecidedError(note.id)
+    this.notes.set(note.id, note)
+    return note
   }
 }
