@@ -43,6 +43,7 @@ export function aUser(
     id,
     companyId: overrides.companyId ?? 'acme',
     name: id,
+    email: `${id}@acme.test`,
     role: overrides.role ?? 'employee',
     managerId: overrides.managerId ?? null,
   })

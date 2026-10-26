@@ -1,7 +1,7 @@
 import { getReceiptSuggestion } from '@/composition'
 import { auth } from '@/lib/auth'
 import { problemFromError, unauthenticated } from '@/interface/http/problemDetails'
-import { receiptSuggestionPath, toReceiptSuggestionDto } from '@/interface/http/receiptSuggestionDto'
+import { receiptSuggestionPath, toReceiptSuggestionDto } from '@/interface/http/mappers'
 
 // Contrat : docs/api/openapi.yaml (operationId getReceiptSuggestion), ADR 0007.
 // Polling : 200 à chaque appel ; le client s'arrête sur `done` ou `failed`.

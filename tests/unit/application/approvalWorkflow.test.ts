@@ -105,7 +105,7 @@ describe('DecideExpenseNote', () => {
 })
 
 describe('ListPendingApprovals', () => {
-  const ids = (notes: { id: string }[]) => notes.map((note) => note.id)
+  const ids = (items: { note: { id: string } }[]) => items.map((item) => item.note.id)
 
   it('donne au manager les notes en attente de ses subordonnés directs, les plus anciennes d’abord', async () => {
     expect(ids(await setup().listPending.execute({ actorId: 'manager' }))).toEqual([
@@ -116,6 +116,11 @@ describe('ListPendingApprovals', () => {
 
   it('donne au RH les notes des auteurs sans manager, sauf les siennes', async () => {
     expect(ids(await setup().listPending.execute({ actorId: 'hr' })).sort()).toEqual(['newcomer-note', 'root-note'])
+  })
+
+  it('donne le nom de l’auteur de chaque note, pour ne plus afficher un identifiant', async () => {
+    const [first] = await setup().listPending.execute({ actorId: 'manager' })
+    expect(first.author).toMatchObject({ id: 'employee', name: 'employee' })
   })
 
   it("ne donne rien à un employé, ni à un RH d'une autre entreprise", async () => {

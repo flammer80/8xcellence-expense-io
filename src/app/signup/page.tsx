@@ -17,7 +17,7 @@ export default function SignupPage() {
       <div className="space-y-1 text-center">
         <h1 className="text-2xl font-semibold tracking-tight">Créer un compte</h1>
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          Quelques secondes suffisent.
+          Avec ton adresse email professionnelle : ton entreprise est reconnue par son domaine.
         </p>
       </div>
 
@@ -51,6 +51,12 @@ export default function SignupPage() {
           />
           <p className="text-xs text-gray-400">8 caractères minimum.</p>
         </div>
+
+        {state?.notice && (
+          <p role="status" className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-800 dark:bg-green-950 dark:text-green-300">
+            {state.notice}
+          </p>
+        )}
 
         {state?.error && (
           <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">

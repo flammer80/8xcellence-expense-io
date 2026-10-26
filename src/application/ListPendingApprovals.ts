@@ -1,7 +1,14 @@
 import { ApprovalPolicy } from '@/domain/ApprovalPolicy'
 import type { ExpenseNote } from '@/domain/ExpenseNote'
+import type { User } from '@/domain/User'
 import type { ExpenseNoteRepository } from './ports/ExpenseNoteRepository'
 import type { UserRepository } from './ports/UserRepository'
+
+/** Une note à trancher, avec son auteur (pour afficher son nom plutôt qu'un identifiant). */
+export interface PendingApproval {
+  note: ExpenseNote
+  author: User
+}
 
 export interface ListPendingApprovalsInput {
   /** Utilisateur connecté (manager ou RH). */
@@ -27,16 +34,20 @@ export class ListPendingApprovals {
     private readonly users: UserRepository
   ) {}
 
-  async execute({ actorId }: ListPendingApprovalsInput): Promise<ExpenseNote[]> {
+  async execute({ actorId }: ListPendingApprovalsInput): Promise<PendingApproval[]> {
     const actor = await this.users.findById(actorId, actorId)
     if (!actor) return []
 
     const colleagues = await this.users.listByCompany(actor.companyId, actorId)
-    const authorIds = colleagues
-      .filter((author) => ApprovalPolicy.canDecide(actor, author))
-      .map((author) => author.id)
-    if (authorIds.length === 0) return []
+    const authors = new Map(
+      colleagues.filter((author) => ApprovalPolicy.canDecide(actor, author)).map((author) => [author.id, author])
+    )
+    if (authors.size === 0) return []
 
-    return this.notes.listPendingByAuthors(authorIds, actorId)
+    const notes = await this.notes.listPendingByAuthors([...authors.keys()], actorId)
+    return notes.flatMap((note) => {
+      const author = authors.get(note.userId)
+      return author ? [{ note, author }] : []
+    })
   }
 }

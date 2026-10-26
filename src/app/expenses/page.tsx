@@ -1,153 +1,100 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { NotificationsPanel } from '@/components/NotificationsPanel'
-import { suggestFromReceipt } from '@/components/receiptSuggestionApi'
-
-interface ExpenseNote {
-  id: string
-  amount: number
-  expenseDate: string
-  description: string
-  status: string
-  createdAt: string
-}
+import { api, openReceipt } from '@/components/api/client'
+import { useApiResource } from '@/components/api/useApiResource'
+import { Card, EmptyRow, ErrorAlert } from '@/components/ui'
+import type { ExpenseNoteStatus } from '@/domain/ExpenseNote'
+import { formatCurrency, formatDate } from '@/utils/format'
 
 const inputClass =
   'w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 dark:border-gray-700 dark:bg-gray-900 dark:focus:ring-brand-900'
 
-const currencyFormatter = new Intl.NumberFormat('fr-FR', {
-  style: 'currency',
-  currency: 'EUR',
-})
-
-const dateFormatter = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium' })
-
-const STATUS_STYLES: Record<string, string> = {
+const STATUS_STYLES: Record<ExpenseNoteStatus, string> = {
   pending: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
   approved: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',
   rejected: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
 }
 
-const STATUS_LABELS: Record<string, string> = {
+const STATUS_LABELS: Record<ExpenseNoteStatus, string> = {
   pending: 'en attente',
   approved: 'approuvée',
   rejected: 'rejetée',
 }
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status }: { status: ExpenseNoteStatus }) {
   return (
-    <span
-      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_STYLES[status] ?? STATUS_STYLES.pending}`}
-    >
-      {STATUS_LABELS[status] ?? status}
+    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_STYLES[status]}`}>
+      {STATUS_LABELS[status]}
     </span>
   )
 }
 
 export default function ExpensesPage() {
-  const [notes, setNotes] = useState<ExpenseNote[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const history = useApiResource(api.listMyExpenseNotes)
+  const notes = history.data ?? []
+  const [actionError, setActionError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [extracting, setExtracting] = useState(false)
   const [suggestionNotice, setSuggestionNotice] = useState<string | null>(null)
   const [amount, setAmount] = useState('')
   const [expenseDate, setExpenseDate] = useState('')
   const receiptInputRef = useRef<HTMLInputElement>(null)
-
-  const loadNotes = useCallback(async () => {
-    const response = await fetch('/api/expense-notes')
-    if (response.ok) {
-      setNotes(await response.json())
-    } else {
-      setError('Impossible de charger les notes de frais.')
-    }
-    setLoading(false)
-  }, [])
-
-  useEffect(() => {
-    // Le setState effectif n'intervient qu'après l'await dans loadNotes,
-    // la règle react-hooks est ici trop conservatrice.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    loadNotes()
-  }, [loadNotes])
+  const error = actionError ?? history.error
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setSubmitting(true)
-    setError(null)
+    setActionError(null)
     const form = event.currentTarget
-    const formData = new FormData(form)
 
-    const response = await fetch('/api/expense-notes', {
-      method: 'POST',
-      body: formData,
-    })
+    const result = await api.submitExpenseNote(new FormData(form))
     setSubmitting(false)
 
-    if (response.ok) {
+    if (result.ok) {
       form.reset()
       setAmount('')
       setExpenseDate('')
       setSuggestionNotice(null)
-      await loadNotes()
+      history.reload()
     } else {
-      const body = await response.json().catch(() => null)
-      setError(
-        typeof body?.error === 'string'
-          ? body.error
-          : 'Échec de la soumission de la note de frais.'
-      )
+      setActionError(result.problem?.error ?? result.message)
     }
   }
 
   async function handleSuggestFields() {
     const receipt = receiptInputRef.current?.files?.[0]
     if (!receipt) {
-      setError('Sélectionne d’abord un reçu.')
+      setActionError('Sélectionne d’abord un reçu.')
       return
     }
     setExtracting(true)
-    setError(null)
+    setActionError(null)
     setSuggestionNotice(null)
 
     // Analyse asynchrone : 202 puis polling jusqu'au résultat (ADR 0007).
-    const result = await suggestFromReceipt(receipt)
+    const result = await api.suggestFromReceipt(receipt)
     setExtracting(false)
 
     if (!result.ok) {
-      setError(result.message)
+      setActionError(result.message)
       return
     }
     // Une suggestion vide est valide (rien reconnu) : sans ce message, ça
     // ne se distinguerait pas visuellement d'un bouton qui n'a rien fait.
-    const { suggestion } = result
-    const foundAmount = typeof suggestion.amount === 'number'
-    const foundDate = typeof suggestion.expenseDate === 'string'
-    if (foundAmount) {
-      setAmount(String(suggestion.amount))
-    }
-    if (foundDate) {
-      setExpenseDate(suggestion.expenseDate as string)
-    }
-    if (!foundAmount && !foundDate) {
+    const { amount: foundAmount, expenseDate: foundDate } = result.data
+    if (foundAmount !== undefined) setAmount(String(foundAmount))
+    if (foundDate !== undefined) setExpenseDate(foundDate)
+    if (foundAmount === undefined && foundDate === undefined) {
       setSuggestionNotice('Aucune information reconnue sur ce reçu — saisis les champs manuellement.')
-    } else if (!foundAmount || !foundDate) {
-      setSuggestionNotice(
-        `${foundAmount ? 'Date' : 'Montant'} non reconnu(e) sur ce reçu — vérifie ce champ.`
-      )
+    } else if (foundAmount === undefined || foundDate === undefined) {
+      setSuggestionNotice(`${foundAmount !== undefined ? 'Date' : 'Montant'} non reconnu(e) sur ce reçu — vérifie ce champ.`)
     }
   }
 
   async function handleViewReceipt(id: string) {
-    const response = await fetch(`/api/expense-notes/${id}/receipt-url`)
-    if (!response.ok) {
-      setError('Impossible de récupérer le reçu.')
-      return
-    }
-    const { url } = await response.json()
-    window.open(url, '_blank', 'noopener,noreferrer')
+    setActionError(await openReceipt(id))
   }
 
   const total = notes.reduce((sum, note) => sum + note.amount, 0)
@@ -158,7 +105,7 @@ export default function ExpensesPage() {
         <h1 className="text-2xl font-semibold tracking-tight">Mes notes de frais</h1>
         <p className="text-sm text-gray-500 dark:text-gray-400">
           {notes.length > 0
-            ? `${notes.length} note${notes.length > 1 ? 's' : ''} · ${currencyFormatter.format(total)} au total`
+            ? `${notes.length} note${notes.length > 1 ? 's' : ''} · ${formatCurrency(total)} au total`
             : 'Soumets ta première note de frais ci-dessous.'}
         </p>
       </div>
@@ -248,24 +195,13 @@ export default function ExpensesPage() {
 
       <NotificationsPanel />
 
-      {error && (
-        <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
-          {error}
-        </p>
-      )}
+      <ErrorAlert message={error} />
 
-      <section className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
-        <h2 className="border-b border-gray-200 px-6 py-4 text-base font-semibold dark:border-gray-800">
-          Historique
-        </h2>
-        {loading ? (
-          <p className="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
-            Chargement…
-          </p>
+      <Card title="Historique">
+        {history.loading ? (
+          <EmptyRow>Chargement…</EmptyRow>
         ) : notes.length === 0 ? (
-          <p className="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
-            Aucune note de frais pour le moment.
-          </p>
+          <EmptyRow>Aucune note de frais pour le moment.</EmptyRow>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
@@ -282,11 +218,11 @@ export default function ExpensesPage() {
                 {notes.map((note) => (
                   <tr key={note.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                     <td className="px-6 py-3 whitespace-nowrap text-gray-500 dark:text-gray-400">
-                      {dateFormatter.format(new Date(note.expenseDate))}
+                      {formatDate(note.expenseDate)}
                     </td>
                     <td className="px-6 py-3">{note.description}</td>
                     <td className="px-6 py-3 text-right font-medium whitespace-nowrap">
-                      {currencyFormatter.format(note.amount)}
+                      {formatCurrency(note.amount)}
                     </td>
                     <td className="px-6 py-3">
                       <StatusBadge status={note.status} />
@@ -306,7 +242,7 @@ export default function ExpensesPage() {
             </table>
           </div>
         )}
-      </section>
+      </Card>
     </main>
   )
 }

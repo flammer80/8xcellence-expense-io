@@ -18,7 +18,13 @@ describe('GET /api/expense-notes', () => {
     signOut()
     const response = await GET(request('/api/expense-notes'))
     expect(response.status).toBe(401)
-    expect(await response.json()).toEqual({ error: 'Unauthorized' })
+    // RFC 9457, avec le membre historique `error` conservé (ADR 0008).
+    expect(response.headers.get('Content-Type')).toBe('application/problem+json')
+    expect(await response.json()).toMatchObject({
+      type: 'https://expense.io/problems/unauthenticated',
+      status: 401,
+      error: 'Unauthorized',
+    })
   })
 
   it("ne renvoie que les notes de l'utilisateur, les plus récentes d'abord", async () => {
@@ -39,7 +45,6 @@ describe('GET /api/expense-notes', () => {
       amount: 10,
       expenseDate: '2026-10-01',
       description: expect.any(String),
-      receiptKey: newer.receiptKey,
       status: 'pending',
       createdAt: '2026-10-02T10:00:00.000Z',
     })
@@ -62,14 +67,15 @@ describe('POST /api/expense-notes', () => {
       description: 'Taxi aéroport',
       status: 'pending',
     })
-    // Clé opaque, préfixée par l'entreprise (ADR 0006) ; l'ancienne clé
-    // `receipts/{seq}.png` révélait le volume de notes (DAT-03).
-    expect(body.receiptKey).toMatch(new RegExp(`^receipts/${org.companyId}/${body.id}\\.png$`))
+    // La clé de stockage n'est plus exposée (ADR 0008). En base, elle reste
+    // opaque et préfixée par l'entreprise (ADR 0006).
+    expect(body).not.toHaveProperty('receiptKey')
     expect(body.id).toMatch(new RegExp(`^${UUID}$`))
     expect(response.headers.get('Location')).toBe(`/api/expense-notes/${body.id}`)
-    expect(uploadReceipt).toHaveBeenCalledWith(body.receiptKey, expect.any(Buffer), 'image/png')
+    const receiptKey = `receipts/${org.companyId}/${body.id}.png`
+    expect(uploadReceipt).toHaveBeenCalledWith(receiptKey, expect.any(Buffer), 'image/png')
     expect(await getNotesOf(org.employee.id)).toEqual([
-      { id: body.id, company_id: org.companyId, receipt_key: body.receiptKey },
+      { id: body.id, company_id: org.companyId, receipt_key: receiptKey },
     ])
   })
 
@@ -103,7 +109,7 @@ describe('POST /api/expense-notes', () => {
       request('/api/expense-notes', { method: 'POST', body: noteForm(fields) })
     )
     expect(response.status).toBe(400)
-    expect(await response.json()).toEqual({ error: 'Champs invalides' })
+    expect(await response.json()).toMatchObject({ error: 'Champs invalides' })
   })
 
   it.each([
@@ -116,7 +122,7 @@ describe('POST /api/expense-notes', () => {
       request('/api/expense-notes', { method: 'POST', body: noteForm({ expenseDate }) })
     )
     expect(response.status).toBe(400)
-    expect(await response.json()).toEqual({ error: 'Champs invalides' })
+    expect(await response.json()).toMatchObject({ error: 'Champs invalides' })
     expect(uploadReceipt).not.toHaveBeenCalled()
   })
 
@@ -131,7 +137,7 @@ describe('POST /api/expense-notes', () => {
       request('/api/expense-notes', { method: 'POST', body: noteForm({ receipt: fake }) })
     )
     expect(response.status).toBe(400)
-    expect(await response.json()).toEqual({ error: 'Type de fichier non autorisé pour le reçu' })
+    expect(await response.json()).toMatchObject({ error: 'Type de fichier non autorisé pour le reçu' })
     expect(await getNotesOf(org.employee.id)).toEqual([])
   })
 

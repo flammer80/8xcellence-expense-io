@@ -18,6 +18,7 @@ const SUPPORTED_VERSION: Record<OutboxMessageType, number> = {
   ExpenseNoteSubmitted: 1,
   ExpenseNoteDecided: 1,
   ReceiptOcrRequested: 1,
+  EmailVerificationRequested: 1,
 }
 
 export interface OutboxWorkerOptions {

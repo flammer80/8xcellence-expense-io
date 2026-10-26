@@ -1,9 +1,9 @@
-import NextAuth from 'next-auth'
+import NextAuth, { CredentialsSignin } from 'next-auth'
 import Credentials from 'next-auth/providers/credentials'
 import bcrypt from 'bcryptjs'
 import type { UserRole } from '@/domain/User'
-import { normalizeEmail } from '@/domain/Email'
-import { findCredentialsByEmail } from '@/infrastructure/postgres/accounts'
+import { consumeAuthAttempt, findCredentialsByEmail } from '@/infrastructure/postgres/accounts'
+import { authorizeCredentials } from '@/interface/auth/credentials'
 
 // Valeurs à ne jamais accepter comme secret de signature : celle d'exemple de
 // .env.example, et l'ancien secret qui était versionné dans ce fichier
@@ -29,6 +29,14 @@ function readAuthSecret(): string {
   return secret
 }
 
+/** Refus de connexion, avec la raison (`invalid_credentials`, `rate_limited`, `email_not_verified`). */
+class LoginRefused extends CredentialsSignin {
+  constructor(reason: string) {
+    super()
+    this.code = reason
+  }
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   secret: readAuthSecret(),
   session: { strategy: 'jwt' },
@@ -42,18 +50,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         password: { label: 'Mot de passe', type: 'password' },
       },
       async authorize(credentials) {
-        const email = typeof credentials?.email === 'string' ? normalizeEmail(credentials.email) : null
-        const password =
-          typeof credentials?.password === 'string' ? credentials.password : null
-        if (!email || !password) return null
-
-        const user = await findCredentialsByEmail(email)
-        if (!user) return null
-
-        const passwordMatches = await bcrypt.compare(password, user.passwordHash)
-        if (!passwordMatches) return null
-
-        return { id: user.id, email: user.email, role: user.role }
+        const result = await authorizeCredentials(
+          { email: credentials?.email, password: credentials?.password },
+          { findCredentialsByEmail, consumeAuthAttempt, comparePassword: bcrypt.compare }
+        )
+        if (result.ok) return result.user
+        // Le code remonte jusqu'à l'action `login`, qui choisit le message.
+        throw new LoginRefused(result.reason)
       },
     }),
   ],

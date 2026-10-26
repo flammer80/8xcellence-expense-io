@@ -15,5 +15,16 @@ export default async function ManagerPage() {
     )
   }
 
-  return <PendingApprovalsPanel />
+  return (
+    <main className="flex flex-col gap-8">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Validation des notes de frais</h1>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          Notes en attente des employés qui vous sont rattachés. Le rattachement est géré par la RH de votre
+          entreprise (page RH).
+        </p>
+      </div>
+      <PendingApprovalsPanel title="En attente" authorLabel="Employé" />
+    </main>
+  )
 }

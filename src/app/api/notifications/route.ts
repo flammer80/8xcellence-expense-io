@@ -1,5 +1,6 @@
 import { listMyNotifications } from '@/composition'
 import { auth } from '@/lib/auth'
+import { toNotificationDto } from '@/interface/http/mappers'
 import { problemFromError, unauthenticated } from '@/interface/http/problemDetails'
 
 const INSTANCE = '/api/notifications'
@@ -11,16 +12,7 @@ export async function GET() {
     if (!session?.user) return unauthenticated(INSTANCE)
 
     const notifications = await listMyNotifications.execute({ actorId: session.user.id })
-    return Response.json(
-      notifications.map((n) => ({
-        id: n.id,
-        noteId: n.noteId,
-        noteDescription: n.noteDescription,
-        decision: n.decision,
-        rejectionReason: n.rejectionReason,
-        createdAt: n.createdAt.toISOString(),
-      }))
-    )
+    return Response.json(notifications.map(toNotificationDto))
   } catch (error) {
     return problemFromError(error, INSTANCE)
   }

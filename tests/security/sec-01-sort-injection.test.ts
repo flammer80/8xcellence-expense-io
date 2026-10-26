@@ -19,7 +19,7 @@ describe('SEC-01 — injection SQL via ?sort=', () => {
     const response = await GET(request(`/api/expense-notes?sort=${encodeURIComponent('(SELECT 1/0)')}`))
 
     expect(response.status).toBe(400)
-    expect(await response.json()).toEqual({ error: 'Invalid sort' })
+    expect(await response.json()).toMatchObject({ error: 'Invalid sort' })
   })
 
   it('refuse une sous-requête qui lit une autre table', async () => {

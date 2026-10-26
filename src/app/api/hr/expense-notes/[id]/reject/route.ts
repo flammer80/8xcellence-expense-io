@@ -1,6 +1,6 @@
 import { decideExpenseNote } from '@/composition'
 import { auth } from '@/lib/auth'
-import { toExpenseNoteDto } from '@/interface/http/expenseNoteDto'
+import { toExpenseNoteDto } from '@/interface/http/mappers'
 import { deprecated, legacyErrorResponse, requireRole } from '@/interface/http/legacyRoutes'
 import { traced } from '@/interface/http/correlation'
 
