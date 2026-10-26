@@ -1,15 +1,21 @@
 openapi: 3.1.0
 info:
   title: Expense.io API
-  version: 1.2.0
+  version: 1.3.0
   description: |
     Contrat de l'API d'Expense.io, source de vérité (contract first, CLAUDE.md §10).
     Il est mis à jour **avant** chaque changement de route.
 
     Ce document couvre pour l'instant la soumission d'une note (étape 4), le
-    parcours de décision (étape 3) et les anciennes routes qu'il remplace ; les
-    autres routes y entreront au fil de leur migration. Les choix de style sont expliqués dans
-    `docs/adr/0004-route-de-decision.md`.
+    parcours de décision (étape 3), l'asynchrone (étape 5 : suggestion OCR en
+    202 + polling, notifications) et les anciennes routes qu'ils remplacent ;
+    les autres routes y entreront au fil de leur migration. Les choix de style
+    sont expliqués dans `docs/adr/0004-route-de-decision.md` et
+    `docs/adr/0007-asynchrone-unifie.md`.
+
+    Traçabilité : les routes qui modifient l'état acceptent un en-tête
+    `X-Correlation-Id` (8 à 64 caractères `[A-Za-z0-9._-]`, sinon il est
+    généré) et le renvoient. Il suit la requête jusqu'aux logs du worker.
 
     Authentification : session NextAuth (cookie `authjs.session-token`).
 servers:
@@ -18,6 +24,8 @@ servers:
 tags:
   - name: notes
     description: Notes de frais (ressources REST)
+  - name: async
+    description: Traitements en arrière-plan (ADR 0007)
   - name: legacy
     description: Anciennes routes, conservées comme adaptateurs fins et dépréciées
 
@@ -182,6 +190,138 @@ paths:
         '404':
           $ref: '#/components/responses/LegacyError'
 
+  /api/receipt-suggestions:
+    post:
+      tags: [async]
+      operationId: requestReceiptSuggestion
+      summary: Demander l'analyse OCR d'un reçu (asynchrone)
+      description: |
+        L'analyse se fait en arrière-plan, par le worker de l'outbox (ADR 0007) :
+        la requête répond **202** tout de suite, avec un lien de suivi dans
+        `Location`. Le client interroge ce lien (polling) jusqu'à `done` ou `failed`.
+
+        Erreur d'acceptation (cette réponse) ≠ erreur de traitement (statut
+        `failed` de la ressource, après plusieurs tentatives).
+
+        Image de 5 Mo au plus (SEC-08), type vérifié sur son contenu.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [receipt]
+              properties:
+                receipt:
+                  type: string
+                  format: binary
+                  description: PNG, JPEG ou WebP (un PDF est accepté mais rien n'en est extrait), 5 Mo au plus.
+      responses:
+        '202':
+          description: Demande acceptée, analyse en cours.
+          headers:
+            Location:
+              description: Lien de suivi de la demande.
+              schema: { type: string, example: /api/receipt-suggestions/0b6f1c1e-3c55-4d1a-9f0e-6f2a5b7c8d9e }
+            Retry-After:
+              description: Délai conseillé avant le premier polling, en secondes.
+              schema: { type: integer, example: 1 }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReceiptSuggestion' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '422':
+          description: Type refusé, contenu qui ne correspond pas au type annoncé (`#/receipt.type`) ou fichier trop gros (`#/receipt.size`).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /api/receipt-suggestions/{id}:
+    get:
+      tags: [async]
+      operationId: getReceiptSuggestion
+      summary: Suivre une demande d'analyse OCR (polling)
+      description: |
+        Renvoie l'état de la demande. Tant qu'elle est `pending`, la réponse porte
+        `Retry-After`. Seul son auteur la voit.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: État de la demande.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReceiptSuggestion' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404':
+          description: Demande inexistante ou d'un autre utilisateur.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /api/notifications:
+    get:
+      tags: [async]
+      operationId: listMyNotifications
+      summary: Mes notifications (décisions sur mes notes)
+      description: |
+        Les 20 plus récentes, de la plus récente à la plus ancienne. Écrites par
+        le worker de l'outbox en réaction à `ExpenseNoteDecided` ; un événement
+        rejoué ne crée jamais de doublon.
+      responses:
+        '200':
+          description: Liste, éventuellement vide.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Notification' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+
+  /api/expense-notes/receipt-suggestion:
+    post:
+      tags: [legacy]
+      deprecated: true
+      summary: (Déprécié) Analyse OCR synchrone d'un reçu
+      description: |
+        Remplacé par `POST /api/receipt-suggestions` (202 + polling). Conservé
+        pour ses consommateurs existants, mais borné (SEC-08) : 5 Mo au plus,
+        worker Tesseract partagé, une analyse à la fois. Une panne de l'OCR
+        renvoie une suggestion vide.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [receipt]
+              properties:
+                receipt: { type: string, format: binary }
+      responses:
+        '200':
+          description: Champs reconnus, éventuellement aucun. Porte `Deprecation` et `Link`.
+          headers:
+            Deprecation: { schema: { type: string, example: 'true' } }
+            Link: { schema: { type: string, example: '</api/receipt-suggestions>; rel="successor-version"' } }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  amount: { type: number }
+                  expenseDate: { type: string, format: date }
+        '400': { $ref: '#/components/responses/LegacyError' }
+        '401': { $ref: '#/components/responses/LegacyError' }
+        '413':
+          description: Fichier de plus de 5 Mo (`Fichier trop volumineux`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LegacyError' }
+
   /api/manager/expense-notes/{id}/approve:
     post:
       tags: [legacy]
@@ -319,6 +459,36 @@ components:
         correlationId:
           type: string
           description: Présent sur les 500 ; permet de retrouver l'erreur dans les logs serveur.
+
+    ReceiptSuggestion:
+      type: object
+      required: [id, status, createdAt, completedAt]
+      properties:
+        id: { type: string, format: uuid }
+        status:
+          type: string
+          enum: [pending, done, failed]
+          description: '`done` et `failed` sont des états finaux : le client arrête le polling.'
+        amount:
+          type: number
+          description: Présent seulement si `done` et reconnu sur le reçu.
+        expenseDate:
+          type: string
+          format: date
+          description: Présent seulement si `done` et reconnue sur le reçu.
+        createdAt: { type: string, format: date-time }
+        completedAt: { type: [string, 'null'], format: date-time }
+
+    Notification:
+      type: object
+      required: [id, noteId, noteDescription, decision, rejectionReason, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        noteId: { type: string, format: uuid }
+        noteDescription: { type: string }
+        decision: { type: string, enum: [approved, rejected] }
+        rejectionReason: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
 
     LegacyError:
       type: object
