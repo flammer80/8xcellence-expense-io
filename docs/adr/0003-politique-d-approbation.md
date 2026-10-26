@@ -45,6 +45,8 @@ La règle « qui valide qui » est le cœur différenciant d'Expense.io : c'est 
 
 **7. Ordre des contrôles.** L'autorisation passe avant l'état. Une note qu'on n'a pas le droit de trancher donne 403 (même entreprise) ou 404 (autre entreprise), jamais 409 : on ne révèle rien de son état.
 
+> *Amendé par l'ADR 0005 :* depuis que la RLS s'applique, une note que l'utilisateur ne peut pas **voir** répond 404, même dans son entreprise (par exemple un manager qui n'est pas le manager direct). Le 403 reste renvoyé quand il la voit sans en être le validateur.
+
 ## Alternatives écartées
 
 - **Garder la règle en SQL et la factoriser dans une vue ou une fonction Postgres.** La règle resterait testable seulement avec une base, et invisible pour qui lit le code applicatif.
@@ -60,5 +62,5 @@ La règle « qui valide qui » est le cœur différenciant d'Expense.io : c'est 
   - la file du RH contient aussi les notes des employés sans manager et des autres RH ;
   - les routes manager refusent désormais une note d'une autre entreprise, même si le rattachement est incohérent en base.
 - `ListPendingApprovals` charge les utilisateurs de l'entreprise pour appliquer la politique. C'est négligeable à l'échelle d'une PME. Pour une très grande entreprise, il faudra une requête dédiée, testée contre la politique.
-- **Dette connue** : les policies RLS décrivent encore l'ancienne règle (RH → managers racine seulement). Elles n'ont aucun effet tant que l'application se connecte en superutilisateur (SEC-03). Elles seront réécrites à l'étape 4 avec `company_id`. Il faudra alors couvrir le RH qui tranche un employé sans manager ou un autre RH.
+- **Dette connue, soldée à l'étape 4** : les policies RLS décrivaient encore l'ancienne règle (RH → managers racine seulement), sans effet tant que l'application se connectait en superutilisateur (SEC-03). Elles ont été réécrites avec `company_id` (ADR 0005), et les tests de décision du RH sur un employé sans manager et sur un autre RH tournent désormais avec le rôle applicatif.
 - Les libellés de l'écran RH (« Notes des managers racine ») ne sont pas modifiés, pour ne pas casser un test E2E qui s'appuierait dessus. Ils sont à revoir à l'étape 6.

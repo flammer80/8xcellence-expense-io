@@ -14,7 +14,7 @@ make dev
 ```
 
 Ceci installe les dépendances, démarre Postgres et LocalStack, applique les
-migrations, crée le bucket de stockage, peuple des comptes de démonstration
+migrations, ouvre la connexion du rôle applicatif, crée le bucket de stockage, peuple des comptes de démonstration
 (voir "Comptes" plus bas), puis lance le serveur de développement sur
 http://localhost:3000.
 
@@ -25,6 +25,7 @@ npm install
 cp .env.example .env
 docker compose up -d
 npm run migrate:up
+npm run ensure-app-role
 npm run ensure-bucket
 npm run seed
 npm run dev
@@ -54,6 +55,15 @@ Voir `.env.example`. `AUTH_SECRET` est obligatoire : l'application refuse de
 démarrer sans lui, ou avec la valeur d'exemple. `make env` (appelé par
 `make dev`) en génère un.
 
+Postgres est utilisé avec deux rôles (`docs/adr/0005-isolation-des-entreprises-en-base.md`) :
+
+| Variable | Rôle | Utilisée par |
+|---|---|---|
+| `DATABASE_URL` | `expense_app`, soumis à la RLS | l'application |
+| `MIGRATION_DATABASE_URL` | `expense`, propriétaire du schéma | migrations, seed, `make ensure-app-role` |
+
+`make env` ajoute ces deux variables à un `.env` créé avant cette séparation.
+
 ## Tests
 
 ```bash
@@ -65,7 +75,8 @@ npm run test:integration  # route handlers contre la base expense_io_test
 Les tests d'intégration recréent la base `expense_io_test` (jamais la base de
 dev) sur le Postgres du `docker-compose` ; ils nécessitent donc Docker. Une
 autre base peut être visée avec `TEST_DATABASE_URL` (son nom doit finir par
-`_test`). La CI GitHub Actions lance lint, typecheck et tests à chaque push.
+`_test`). L'application y est exercée avec le rôle applicatif `expense_app`,
+comme en production ; seules les fixtures passent par le rôle propriétaire. La CI GitHub Actions lance lint, typecheck et tests à chaque push.
 
 - `tests/integration/` fige le comportement actuel des routes (contrat à préserver) ;
 - `tests/security/` contient un test par faille de l'audit (`docs/audit/audit-v2.md`).
@@ -80,8 +91,8 @@ le domaine (`docs/adr/0002-architecture-hexagonale.md`) :
 
 | Dossier | Rôle |
 |---|---|
-| `src/domain/` | Entités, value objects (`Money`, `ExpenseDate`), erreurs ; aucun import externe |
-| `src/application/` | Cas d'usage (`ListMyExpenseNotes`…) et leurs ports (`application/ports/`) |
+| `src/domain/` | Entités, value objects (`Money`, `ExpenseDate`, `ReceiptFile`), erreurs ; aucun import externe |
+| `src/application/` | Cas d'usage (`SubmitExpenseNote`, `DecideExpenseNote`…) et leurs ports (`application/ports/`) |
 | `src/infrastructure/` | Adaptateurs : Postgres (seul endroit du SQL migré), S3, notifications, en mémoire pour les tests |
 | `src/interface/http/` | DTO et lecture des paramètres HTTP |
 | `src/app/` | Pages et routes Next.js ; une route migrée = session → cas d'usage → réponse |
@@ -89,6 +100,10 @@ le domaine (`docs/adr/0002-architecture-hexagonale.md`) :
 
 Les règles « qui tranche quelle note » vivent dans un seul fichier,
 `src/domain/ApprovalPolicy.ts` (`docs/adr/0003-politique-d-approbation.md`).
+L'isolation entre entreprises est garantie en plus par PostgreSQL : rôle
+applicatif sans privilège et policies RLS filtrées par entreprise
+(`docs/adr/0005-isolation-des-entreprises-en-base.md`). Une note ne peut pas
+exister sans reçu (`docs/adr/0006-soumission-atomique.md`).
 Le contrat d'API est `docs/api/openapi.yaml` : il est mis à jour avant chaque
 changement de route.
 
