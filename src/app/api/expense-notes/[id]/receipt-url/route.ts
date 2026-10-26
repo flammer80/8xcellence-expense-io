@@ -1,8 +1,9 @@
+import { getReceiptUrl } from '@/composition'
 import { auth } from '@/lib/auth'
-import { withUserScope } from '@/lib/db'
-import { respondError } from '@/lib/errors'
-import { getReceiptUrl } from '@/lib/storage'
+import { legacyErrorResponse } from '@/interface/http/legacyRoutes'
 
+// Route unique des reçus : auteur ou validateur désigné (GetReceiptUrl).
+// Format historique `{ url }` / `{ error }` conservé (docs/api/openapi.yaml).
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await auth()
@@ -11,20 +12,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     }
     const { id } = await params
 
-    const note = await withUserScope(session.user.id, async (client) => {
-      const result = await client.query(
-        'SELECT receipt_key FROM expense_notes WHERE id = $1 AND user_id = $2',
-        [id, session.user.id]
-      )
-      return result.rows[0]
-    })
-    if (!note) {
-      return Response.json({ error: 'Not found' }, { status: 404 })
-    }
-
-    const url = await getReceiptUrl(note.receipt_key)
+    const url = await getReceiptUrl.execute({ noteId: id, actorId: session.user.id })
     return Response.json({ url })
   } catch (error) {
-    return respondError(error)
+    return legacyErrorResponse(error)
   }
 }

@@ -1,41 +1,20 @@
+import { decideExpenseNote } from '@/composition'
 import { auth } from '@/lib/auth'
-import { withUserScope } from '@/lib/db'
-import { respondError } from '@/lib/errors'
-import { toExpenseNote } from '@/infrastructure/postgres/expenseNoteRow'
 import { toExpenseNoteDto } from '@/interface/http/expenseNoteDto'
+import { deprecated, legacyErrorResponse, requireRole } from '@/interface/http/legacyRoutes'
 
+// Déprécié : adaptateur fin vers DecideExpenseNote, remplacé par
+// POST /api/expense-notes/{id}/decision (ADR 0004). Codes historiques conservés.
 export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
+  const successor = `/api/expense-notes/${id}/decision`
   try {
-    const session = await auth()
-    if (!session?.user || session.user.role !== 'hr_admin') {
-      return Response.json({ error: 'Unauthorized' }, { status: 403 })
-    }
-    const { id } = await params
+    const guard = requireRole(await auth(), 'hr_admin')
+    if (!guard.ok) return deprecated(guard.response, successor)
 
-    return withUserScope(session.user.id, async (client) => {
-      const existing = await client.query(
-        `SELECT en.* FROM expense_notes en
-         JOIN users u ON u.id = en.user_id
-         WHERE en.id = $1 AND u.role = 'manager' AND u.manager_id IS NULL
-           AND u.company_id = (SELECT company_id FROM users WHERE id = $2)`,
-        [id, session.user.id]
-      )
-      const row = existing.rows[0]
-      if (!row) {
-        return Response.json({ error: 'Not found' }, { status: 404 })
-      }
-      if (row.status !== 'pending') {
-        return Response.json({ error: 'Already decided' }, { status: 409 })
-      }
-
-      const updated = await client.query(
-        `UPDATE expense_notes SET status = 'rejected' WHERE id = $1 RETURNING *`,
-        [id]
-      )
-      const note = updated.rows[0]
-      return Response.json(toExpenseNoteDto(toExpenseNote(note)))
-    })
+    const note = await decideExpenseNote.execute({ noteId: id, actorId: guard.actorId, decision: 'rejected' })
+    return deprecated(Response.json(toExpenseNoteDto(note)), successor)
   } catch (error) {
-    return respondError(error)
+    return deprecated(legacyErrorResponse(error), successor)
   }
 }

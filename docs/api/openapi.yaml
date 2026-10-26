@@ -1,0 +1,280 @@
+openapi: 3.1.0
+info:
+  title: Expense.io API
+  version: 1.1.0
+  description: |
+    Contrat de l'API d'Expense.io, source de vérité (contract first, CLAUDE.md §10).
+    Il est mis à jour **avant** chaque changement de route.
+
+    Ce document couvre pour l'instant le parcours de décision (étape 3) et les
+    anciennes routes qu'il remplace ; les autres routes y entreront au fil de
+    leur migration. Les choix de style sont expliqués dans
+    `docs/adr/0004-route-de-decision.md`.
+
+    Authentification : session NextAuth (cookie `authjs.session-token`).
+servers:
+  - url: http://localhost:3000
+
+tags:
+  - name: notes
+    description: Notes de frais (ressources REST)
+  - name: legacy
+    description: Anciennes routes, conservées comme adaptateurs fins et dépréciées
+
+paths:
+  /api/expense-notes/{id}/decision:
+    post:
+      tags: [notes]
+      operationId: decideExpenseNote
+      summary: Trancher une note (approuver ou rejeter)
+      description: |
+        Action métier modélisée en sous-ressource (`POST …/decision`). Seul le
+        validateur désigné par l'`ApprovalPolicy` peut trancher :
+        - le manager direct de l'auteur ;
+        - à défaut (auteur sans manager : manager racine, employé non rattaché, RH),
+          un RH de la même entreprise ;
+        - jamais l'auteur lui-même.
+
+        Une note ne se tranche qu'une fois : rejouer l'appel renvoie 409 sans
+        modifier la décision enregistrée (idempotence de l'état final).
+      parameters:
+        - $ref: '#/components/parameters/NoteId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DecisionRequest'
+            examples:
+              approve:
+                value: { decision: approved }
+              reject:
+                value: { decision: rejected, reason: Justificatif illisible }
+      responses:
+        '200':
+          description: Décision enregistrée ; la note dans son état final.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExpenseNote'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: Même entreprise, mais l'utilisateur n'est pas le validateur désigné (ou c'est sa note).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: La note est déjà tranchée (y compris par une décision concurrente).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422':
+          description: Règle métier violée (motif fourni pour une approbation, motif trop long).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /api/expense-notes/{id}/receipt-url:
+    get:
+      tags: [notes]
+      operationId: getReceiptUrl
+      summary: URL temporaire du reçu d'une note
+      description: |
+        Accessible à l'auteur de la note et à son validateur désigné, quel que
+        soit le statut. Une note qu'on n'a pas le droit de voir répond 404,
+        comme une note inexistante.
+
+        Format historique conservé : erreurs `{ error }`.
+      parameters:
+        - $ref: '#/components/parameters/NoteId'
+      responses:
+        '200':
+          description: URL pré-signée, valable 5 minutes.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url]
+                properties:
+                  url: { type: string, format: uri }
+        '401':
+          $ref: '#/components/responses/LegacyError'
+        '404':
+          $ref: '#/components/responses/LegacyError'
+
+  /api/manager/expense-notes/{id}/approve:
+    post:
+      tags: [legacy]
+      deprecated: true
+      summary: (Déprécié) Approuver la note d'un subordonné
+      description: Remplacé par `POST /api/expense-notes/{id}/decision`. Répond 401 si la session n'est pas celle d'un manager.
+      parameters: [{ $ref: '#/components/parameters/NoteId' }]
+      responses:
+        '200': { $ref: '#/components/responses/DeprecatedNote' }
+        '401': { $ref: '#/components/responses/LegacyError' }
+        '404': { $ref: '#/components/responses/LegacyError' }
+        '409': { $ref: '#/components/responses/LegacyError' }
+  /api/manager/expense-notes/{id}/reject:
+    post:
+      tags: [legacy]
+      deprecated: true
+      summary: (Déprécié) Rejeter la note d'un subordonné
+      description: Remplacé par `POST /api/expense-notes/{id}/decision`.
+      parameters: [{ $ref: '#/components/parameters/NoteId' }]
+      responses:
+        '200': { $ref: '#/components/responses/DeprecatedNote' }
+        '401': { $ref: '#/components/responses/LegacyError' }
+        '404': { $ref: '#/components/responses/LegacyError' }
+        '409': { $ref: '#/components/responses/LegacyError' }
+  /api/hr/expense-notes/{id}/approve:
+    post:
+      tags: [legacy]
+      deprecated: true
+      summary: (Déprécié) Approuver une note qui revient au RH
+      description: Remplacé par `POST /api/expense-notes/{id}/decision`. Répond 403 si la session n'est pas celle d'un RH.
+      parameters: [{ $ref: '#/components/parameters/NoteId' }]
+      responses:
+        '200': { $ref: '#/components/responses/DeprecatedNote' }
+        '403': { $ref: '#/components/responses/LegacyError' }
+        '404': { $ref: '#/components/responses/LegacyError' }
+        '409': { $ref: '#/components/responses/LegacyError' }
+  /api/hr/expense-notes/{id}/reject:
+    post:
+      tags: [legacy]
+      deprecated: true
+      summary: (Déprécié) Rejeter une note qui revient au RH
+      description: Remplacé par `POST /api/expense-notes/{id}/decision`.
+      parameters: [{ $ref: '#/components/parameters/NoteId' }]
+      responses:
+        '200': { $ref: '#/components/responses/DeprecatedNote' }
+        '403': { $ref: '#/components/responses/LegacyError' }
+        '404': { $ref: '#/components/responses/LegacyError' }
+        '409': { $ref: '#/components/responses/LegacyError' }
+  /api/manager/expense-notes/{id}/receipt-url:
+    get:
+      tags: [legacy]
+      deprecated: true
+      summary: (Déprécié) Reçu d'une note, côté manager
+      description: Remplacé par `GET /api/expense-notes/{id}/receipt-url`.
+      parameters: [{ $ref: '#/components/parameters/NoteId' }]
+      responses:
+        '200': { description: '`{ url }`' }
+        '401': { $ref: '#/components/responses/LegacyError' }
+        '404': { $ref: '#/components/responses/LegacyError' }
+  /api/hr/expense-notes/{id}/receipt-url:
+    get:
+      tags: [legacy]
+      deprecated: true
+      summary: (Déprécié) Reçu d'une note, côté RH
+      description: Remplacé par `GET /api/expense-notes/{id}/receipt-url`.
+      parameters: [{ $ref: '#/components/parameters/NoteId' }]
+      responses:
+        '200': { description: '`{ url }`' }
+        '403': { $ref: '#/components/responses/LegacyError' }
+        '404': { $ref: '#/components/responses/LegacyError' }
+
+components:
+  parameters:
+    NoteId:
+      name: id
+      in: path
+      required: true
+      description: Identifiant de la note de frais.
+      schema: { type: string, format: uuid }
+
+  schemas:
+    DecisionRequest:
+      type: object
+      required: [decision]
+      additionalProperties: false
+      properties:
+        decision:
+          type: string
+          enum: [approved, rejected]
+        reason:
+          type: string
+          maxLength: 1000
+          description: Motif facultatif, accepté seulement pour un rejet.
+
+    ExpenseNote:
+      type: object
+      required: [id, userId, amount, expenseDate, description, receiptKey, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        amount: { type: number, example: 42.5 }
+        expenseDate: { type: string, format: date }
+        description: { type: string }
+        receiptKey:
+          type: string
+          deprecated: true
+          description: Détail de stockage ; retrait prévu (changement MAJOR) à l'étape « contrat ».
+        status: { type: string, enum: [pending, approved, rejected] }
+        createdAt: { type: string, format: date-time }
+
+    Problem:
+      description: RFC 9457 — Problem Details for HTTP APIs.
+      type: object
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          format: uri
+          description: Identifiant stable du type d'erreur ; c'est sur lui que le client réagit.
+          example: https://expense.io/problems/already-decided
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+        errors:
+          type: array
+          items:
+            type: object
+            required: [pointer, detail]
+            properties:
+              pointer: { type: string, example: '#/decision' }
+              detail: { type: string }
+        correlationId:
+          type: string
+          description: Présent sur les 500 ; permet de retrouver l'erreur dans les logs serveur.
+
+    LegacyError:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+
+  responses:
+    InvalidRequest:
+      description: Corps illisible ou non conforme au schéma.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Unauthenticated:
+      description: Aucune session.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: Note inexistante, ou d'une autre entreprise.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    LegacyError:
+      description: Erreur au format historique.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/LegacyError' }
+    DeprecatedNote:
+      description: La note tranchée. Porte les en-têtes `Deprecation` et `Link` (successor-version).
+      headers:
+        Deprecation: { schema: { type: string, example: 'true' } }
+        Link: { schema: { type: string } }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ExpenseNote' }
