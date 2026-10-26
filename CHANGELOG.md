@@ -15,6 +15,19 @@ Ces comportements étaient eux-mêmes des failles : ils sont corrigés malgré l
 - **`PUT /api/hr/users/{id}/manager`** (SEC-05) : répond **409** `{ "error": "Invalid manager" }` si le manager choisi appartient à une autre entreprise ou si le rattachement créerait un cycle hiérarchique (A → B → A, ou plus long).
 - **Erreurs 500** (SEC-07) : le corps devient `{ "error": "Internal Server Error", "correlationId": "<uuid>" }`. Le message, la stack et le SQL ne sont plus renvoyés au client ; ils sont journalisés côté serveur avec le même `correlationId`.
 
+### Workflow d'approbation (étape 3)
+
+Voir `docs/adr/0003-politique-d-approbation.md` et `docs/adr/0004-route-de-decision.md`.
+
+- **Nouveau** : `POST /api/expense-notes/{id}/decision`, avec le corps `{ "decision": "approved" | "rejected", "reason"?: string }`. Ses erreurs suivent la RFC 9457 (`application/problem+json`). Contrat : `docs/api/openapi.yaml`.
+- **`GET /api/expense-notes/{id}/receipt-url`** devient la route unique des reçus : elle répond aussi au validateur désigné de la note. Elle répondait 404 à toute personne autre que l'auteur.
+- **Notes jusqu'ici bloquées** : la note d'un employé sans manager est tranchée par un RH de l'entreprise, celle d'un RH par un autre RH. `GET /api/hr/expense-notes` liste donc aussi ces notes. Seule exception : la note d'un RH seul dans son entreprise reste en attente.
+- **Routes manager** : une note d'une autre entreprise répond 404, même si le rattachement en base est incohérent.
+- **Dépréciées, toujours disponibles** : `POST /api/{manager|hr}/expense-notes/{id}/{approve|reject}` et `GET /api/{manager|hr}/expense-notes/{id}/receipt-url`. Elles gardent leurs codes et leur format, et ajoutent les en-têtes `Deprecation: true` et `Link: <…>; rel="successor-version"`.
+- **Double décision** : une décision concurrente répond 409, au lieu d'écraser la première.
+- **Identifiant invalide** : un id de note qui n'est pas un UUID répond 404 sur les routes de décision et de reçu, au lieu d'une erreur 500.
+- **Schéma** : la migration `1700000000002_record-decision.sql` ajoute `decided_by`, `decided_at` et `rejection_reason`. Ces champs ne sont pas encore exposés dans les réponses.
+
 ### Architecture (sans changement de l'API)
 
 - Noyau hexagonal (`docs/adr/0002-architecture-hexagonale.md`). `GET /api/expense-notes` passe par le cas d'usage `ListMyExpenseNotes`. Les 7 routes qui renvoient des notes partagent un seul mapping. Réponses, codes et tri sont inchangés.
