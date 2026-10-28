@@ -80,13 +80,18 @@ les liens envoyés par email.
 make test                 # démarre Postgres si besoin, puis lance tous les tests
 npm run test:unit         # domaine, cas d'usage, garde-fou d'architecture (sans base)
 npm run test:integration  # route handlers contre la base expense_io_test
+npm run test:coverage     # tous les tests + couverture (rapport HTML dans coverage/)
 ```
+
+Couverture au 2026-10-28 : **95 % des lignes, 92 % des branches**, 100 % des
+lignes du domaine. Des seuils par couche (`vitest.config.ts`) font échouer la
+CI si l'une d'elles régresse (`docs/adr/0010-couverture-de-tests.md`).
 
 Les tests d'intégration recréent la base `expense_io_test` (jamais la base de
 dev) sur le Postgres du `docker-compose` ; ils nécessitent donc Docker. Une
 autre base peut être visée avec `TEST_DATABASE_URL` (son nom doit finir par
 `_test`). L'application y est exercée avec le rôle applicatif `expense_app`,
-comme en production ; seules les fixtures passent par le rôle propriétaire. La CI GitHub Actions lance lint, typecheck et tests à chaque push.
+comme en production ; seules les fixtures passent par le rôle propriétaire. La CI GitHub Actions lance lint, typecheck et tests avec couverture à chaque push ; le rapport HTML est publié en artefact.
 
 - `tests/integration/` fige le comportement actuel des routes (contrat à préserver) ;
 - `tests/security/` contient un test par faille de l'audit (`docs/audit/audit-v2.md`) ;

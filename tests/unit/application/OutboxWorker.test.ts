@@ -114,4 +114,57 @@ describe('OutboxWorker', () => {
     await worker.drain()
     expect(handler.handle).toHaveBeenCalledTimes(1)
   })
+
+  it('tourne en fond une fois démarré, jusqu’à `stop()`', async () => {
+    vi.useFakeTimers()
+    try {
+      const { store, handler, worker, logs } = setup()
+      worker.start(1000)
+      worker.start(1000) // déjà démarré : sans effet
+      await vi.advanceTimersByTimeAsync(0)
+
+      store.publish(decidedEvent())
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(handler.handle).toHaveBeenCalledTimes(1)
+
+      worker.stop()
+      store.publish(decidedEvent('evt-2'))
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(handler.handle).toHaveBeenCalledTimes(1)
+      expect(logs.filter((entry) => entry.event === 'started')).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('journalise un lot en échec sans arrêter la boucle', async () => {
+    vi.useFakeTimers()
+    try {
+      const { store, worker, logs } = setup()
+      vi.spyOn(store, 'claim').mockRejectedValueOnce(new Error('base indisponible'))
+      worker.start(1000)
+      await vi.advanceTimersByTimeAsync(1000)
+      worker.stop()
+      expect(logs).toContainEqual(expect.objectContaining({ event: 'batch-failed', error: 'base indisponible' }))
+      expect(vi.mocked(store.claim).mock.calls.length).toBeGreaterThan(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('journalise un hook de lettre morte qui échoue, sans faire échouer le lot', async () => {
+    const { store, handler, worker, clock, logs } = setup(async () => {
+      throw new Error('panne')
+    })
+    handler.onDeadLetter.mockRejectedValueOnce(new Error('hook cassé'))
+    store.publish(decidedEvent())
+
+    for (let attempt = 0; attempt < OPTIONS.maxAttempts; attempt++) {
+      await worker.drain()
+      clock.advance(OPTIONS.retryDelayMs(attempt) + 1)
+    }
+
+    expect(handler.onDeadLetter).toHaveBeenCalledTimes(1)
+    expect(logs).toContainEqual(expect.objectContaining({ event: 'dead-letter-hook-failed', error: 'hook cassé' }))
+  })
 })

@@ -34,3 +34,4 @@ Aujourd'hui, les règles métier vivent dans les route handlers (Transaction Scr
 - Les tests d'intégration exigent Docker en local (`make test` démarre Postgres). Les fichiers s'exécutent en série, car ils partagent une base.
 - Les tests de caractérisation devront être **mis à jour volontairement** quand un comportement change par décision (par exemple 401 → 403) : c'est voulu, chaque changement de contrat devient visible dans le diff.
 - Quand le noyau hexagonal existera, les règles métier seront testées en unitaire avec des adaptateurs en mémoire ; ces tests d'intégration resteront le filet du contrat HTTP.
+- **Couverture** : mesurée depuis le 2026-10-28, avec des seuils par couche appliqués en CI. Voir `docs/adr/0010-couverture-de-tests.md`.
