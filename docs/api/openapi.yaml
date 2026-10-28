@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Expense.io API
-  version: 2.0.0
+  version: 2.1.0
   description: |
     Contrat de l'API d'Expense.io, source de vérité (contract first, CLAUDE.md §10).
     Il est mis à jour **avant** chaque changement de route. Les types TypeScript
@@ -22,9 +22,13 @@ info:
     ce membre (extension, dépréciée) et leurs codes historiques ; les routes
     dépréciées gardent leur format `{ error }`.
 
-    Traçabilité : les routes qui modifient l'état acceptent un en-tête
-    `X-Correlation-Id` (8 à 64 caractères `[A-Za-z0-9._-]`, sinon il est
-    généré) et le renvoient. Il suit la requête jusqu'aux logs du worker.
+    **2.1.0 (MINOR)** : sondes `GET /api/health/live` et `GET /api/health/ready`
+    (ADR 0011) ; `X-Correlation-Id` renvoyé par toutes les routes.
+
+    Traçabilité : toutes les routes acceptent un en-tête `X-Correlation-Id`
+    (8 à 64 caractères `[A-Za-z0-9._-]`, sinon il est généré) et le renvoient.
+    Il suit la requête jusqu'aux logs du worker, et chaque log porte aussi le
+    `trace_id` OpenTelemetry de la requête (ADR 0011).
 
     Authentification : session NextAuth (cookie `authjs.session-token`).
 servers:
@@ -39,8 +43,56 @@ tags:
     description: Traitements en arrière-plan (ADR 0007)
   - name: legacy
     description: Anciennes routes, conservées comme adaptateurs fins et dépréciées
+  - name: ops
+    description: Sondes d'exploitation (ADR 0011), sans authentification
 
 paths:
+  /api/health/live:
+    get:
+      tags: [ops]
+      operationId: liveness
+      summary: Sonde de vie
+      description: |
+        Le process répond : 200, sans toucher à aucune dépendance. Un
+        orchestrateur redémarre l'instance si cette sonde échoue.
+      security: []
+      responses:
+        '200':
+          description: Le process est vivant.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Liveness' }
+
+  /api/health/ready:
+    get:
+      tags: [ops]
+      operationId: readiness
+      summary: Sonde de disponibilité
+      description: |
+        L'instance peut servir du trafic : Postgres et le stockage S3 répondent.
+        503 dès qu'une dépendance est indisponible (le répartiteur cesse alors
+        d'envoyer du trafic, sans redémarrer l'instance). Chaque vérification
+        est bornée à 2 secondes. Aucune information sensible (ni hôte, ni
+        message d'erreur) n'est renvoyée.
+      security: []
+      responses:
+        '200':
+          description: Toutes les dépendances répondent.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Readiness' }
+        '503':
+          description: Au moins une dépendance est indisponible.
+          content:
+            application/problem+json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Problem'
+                  - type: object
+                    required: [checks]
+                    properties:
+                      checks: { $ref: '#/components/schemas/HealthChecks' }
+
   /api/expense-notes:
     get:
       tags: [notes]
@@ -638,6 +690,26 @@ components:
       required: [url]
       properties:
         url: { type: string, format: uri }
+
+    Liveness:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [ok] }
+
+    HealthChecks:
+      type: object
+      required: [postgres, storage]
+      properties:
+        postgres: { type: string, enum: [up, down] }
+        storage: { type: string, enum: [up, down] }
+
+    Readiness:
+      type: object
+      required: [status, checks]
+      properties:
+        status: { type: string, enum: [ready] }
+        checks: { $ref: '#/components/schemas/HealthChecks' }
 
     Problem:
       description: RFC 9457 — Problem Details for HTTP APIs.

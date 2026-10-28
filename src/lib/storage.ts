@@ -1,4 +1,4 @@
-import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import { DeleteObjectCommand, GetObjectCommand, HeadBucketCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { s3BucketFromEnv, s3ClientConfigFromEnv } from '@/infrastructure/s3/s3-config'
 
@@ -32,4 +32,9 @@ export async function deleteReceipt(key: string): Promise<void> {
 export async function getReceiptUrl(key: string, expiresInSeconds = 300): Promise<string> {
   const command = new GetObjectCommand({ Bucket: BUCKET, Key: key })
   return getSignedUrl(getClient(), command, { expiresIn: expiresInSeconds })
+}
+
+/** Vérifie que le bucket des reçus répond (sonde `GET /api/health/ready`). */
+export async function pingStorage(signal: AbortSignal): Promise<void> {
+  await getClient().send(new HeadBucketCommand({ Bucket: BUCKET }), { abortSignal: signal })
 }

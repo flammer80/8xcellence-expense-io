@@ -13,7 +13,8 @@ Application de gestion de notes de frais.
 make dev
 ```
 
-Ceci installe les dépendances, démarre Postgres et LocalStack, applique les
+Ceci installe les dépendances, démarre Postgres, LocalStack et la stack
+d'observabilité (Grafana sur http://localhost:3001), applique les
 migrations, ouvre la connexion du rôle applicatif, crée le bucket de stockage, peuple des comptes de démonstration
 (voir "Comptes" plus bas), puis lance le serveur de développement sur
 http://localhost:3000.
@@ -74,6 +75,14 @@ Postgres est utilisé avec trois rôles (`docs/adr/0005-isolation-des-entreprise
 les liens envoyés par email.
 `OUTBOX_WORKER=off` désactive le worker de l'outbox sur une instance.
 
+| Variable | Défaut | Rôle |
+|---|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` | collecteur OTLP/HTTP qui reçoit traces, métriques et logs |
+| `OTEL_SERVICE_NAME` | `expense-io` | nom du service dans Grafana |
+| `OTEL_SDK_DISABLED` | — | `true` coupe toute la télémétrie (tests, CI) |
+| `OTEL_METRIC_EXPORT_INTERVAL` | `15000` | intervalle d'export des métriques, en ms |
+| `LOG_LEVEL` | `info` | niveau des logs JSON (`silent` en test) |
+
 ## Tests
 
 ```bash
@@ -101,6 +110,42 @@ comme en production ; seules les fixtures passent par le rôle propriétaire. La
 
 Stratégie et choix : `docs/adr/0001-strategie-de-tests.md`. Changements de
 comportement : `CHANGELOG.md`.
+
+## Observabilité
+
+Traces, logs et métriques passent par OpenTelemetry
+(`docs/adr/0011-observabilite.md`). En local, `make up` démarre la stack
+`grafana/otel-lgtm` : **Grafana sur http://localhost:3001** (sans mot de
+passe), avec Tempo, Loki et Prometheus déjà branchés. Sans cette stack,
+l'application fonctionne à l'identique.
+
+- **Tableaux de bord** (dossier « Expense.io ») : *API* (trafic, 5xx, p95 par
+  route, sécurité, pools Postgres, S3), *Workflow d'approbation* (soumissions,
+  décisions, délai, notes en souffrance) et *Asynchrone et OCR* (file de
+  l'outbox, lettres mortes, durée de l'OCR).
+- **7 alertes** (Alerting → Alert rules) : 5xx > 2 %, p95 > 1 s, outbox
+  bloquée > 5 min, nouvelle lettre morte, pics de 403, de connexions refusées
+  et de limitation des tentatives.
+- Les deux sont générés par `observability/generate.mjs` et versionnés dans
+  `observability/grafana/` ; `make observability-config` les régénère, puis
+  `docker compose restart observability` les recharge.
+
+**Retrouver une requête.** Chaque réponse porte un en-tête `X-Correlation-Id`,
+présent aussi dans le corps de toute erreur 500. Dans Grafana → Explore →
+Loki :
+
+```
+{service_name="expense-io"} | correlation_id="<id>"
+```
+
+Chaque log porte un `trace_id` : un clic ouvre la trace complète dans Tempo,
+de la route HTTP aux requêtes SQL, jusqu'au traitement du message par le
+worker de l'outbox. Les événements de sécurité se filtrent par
+`| security="true"` (connexions et inscriptions refusées, 403, rattachements).
+Emails, mots de passe et jetons n'apparaissent jamais dans les logs.
+
+**Sondes.** `GET /api/health/live` (le process répond) et
+`GET /api/health/ready` (Postgres et S3 répondent, sinon 503).
 
 ## Architecture
 
@@ -130,7 +175,7 @@ déposés de la même façon. Un worker unique, lancé avec le serveur
 (`src/instrumentation.ts`), les distribue aux consommateurs, avec retries,
 lettre morte et logs JSON portant l'id de corrélation de la requête
 (`docs/adr/0007-asynchrone-unifie.md`).
-Le contrat d'API est `docs/api/openapi.yaml` (v2.0.0) : il est mis à jour
+Le contrat d'API est `docs/api/openapi.yaml` (v2.1.0) : il est mis à jour
 avant chaque changement de route. Les formes JSON qu'il décrit sont déclarées
 une seule fois, dans `src/interface/http/dto.ts`, et importées en `import type`
 par le front : un champ renommé côté serveur casse le typecheck de l'écran
@@ -147,6 +192,7 @@ make build   # build de production
 make start   # build puis démarre en production
 make lint
 make typecheck
-make down    # arrête Postgres/LocalStack
+make down    # arrête Postgres, LocalStack et l'observabilité
+make observability-config  # régénère tableaux de bord et alertes Grafana
 make clean   # arrête et supprime les données locales
 ```

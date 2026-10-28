@@ -31,13 +31,13 @@ describe('s3-config', () => {
 
 describe('ConsoleEmailSender', () => {
   it('écrit l’email de vérification dans les logs (adaptateur de développement)', async () => {
-    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    await new ConsoleEmailSender().sendEmailVerification({
+    const lines: string[] = []
+    await new ConsoleEmailSender((line) => lines.push(line)).sendEmailVerification({
       to: 'alice@acme.fr',
       name: 'Alice',
       verificationUrl: 'http://localhost:3000/verify-email?token=t',
     })
-    expect(JSON.parse(log.mock.calls[0][0] as string)).toMatchObject({
+    expect(JSON.parse(lines[0])).toMatchObject({
       template: 'email-verification',
       to: 'alice@acme.fr',
       verificationUrl: 'http://localhost:3000/verify-email?token=t',

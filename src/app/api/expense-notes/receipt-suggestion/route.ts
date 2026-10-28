@@ -2,6 +2,7 @@ import { auth } from '@/lib/auth'
 import { respondError } from '@/lib/errors'
 import { MAX_OCR_BYTES, suggestFields } from '@/lib/ocr'
 import { deprecated } from '@/interface/http/legacyRoutes'
+import { traced } from '@/interface/http/correlation'
 
 const SUCCESSOR = '/api/receipt-suggestions'
 
@@ -9,7 +10,7 @@ const SUCCESSOR = '/api/receipt-suggestions'
 // (202 + polling, ADR 0007). Gardée pour ses consommateurs existants, mais
 // bornée : 5 Mo au plus, worker Tesseract partagé, une analyse à la fois
 // (SEC-08). Format historique `{ error }` conservé.
-export async function POST(request: Request) {
+export const POST = traced(async function POST(request: Request) {
   try {
     const session = await auth()
     if (!session?.user) {
@@ -31,4 +32,4 @@ export async function POST(request: Request) {
   } catch (error) {
     return deprecated(respondError(error), SUCCESSOR)
   }
-}
+})

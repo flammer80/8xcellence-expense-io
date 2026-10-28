@@ -29,6 +29,8 @@ jobs:
       # applicatif `expense_app`, soumis à la RLS, et le worker avec
       # `expense_worker` (tests/helpers/test-database.ts).
       TEST_DATABASE_URL: postgres://expense:expense@localhost:5433/expense_io_test
+      # Pas de stack d'observabilité en CI : télémétrie coupée (ADR 0011).
+      OTEL_SDK_DISABLED: 'true'
 
     steps:
       - uses: actions/checkout@v4

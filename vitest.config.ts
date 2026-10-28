@@ -11,6 +11,9 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
+    // Tests sans stack d'observabilité : SDK OpenTelemetry coupé, logs muets
+    // (les tests qui vérifient les logs créent leur propre logger).
+    env: { OTEL_SDK_DISABLED: 'true', LOG_LEVEL: 'silent' },
     // Les tests d'intégration partagent une seule base : les fichiers
     // s'exécutent l'un après l'autre (option globale, ignorée par projet).
     fileParallelism: false,
@@ -29,6 +32,9 @@ export default defineConfig({
         'src/instrumentation.ts',
         'src/proxy.ts',
         'src/app/api/auth/**',
+        // Démarrage du SDK OpenTelemetry (exporteurs OTLP) : coupé en test et en
+        // CI (OTEL_SDK_DISABLED), vérifié sur la stack locale (ADR 0011).
+        'src/infrastructure/observability/sdk.ts',
         // Fichiers de types uniquement (ports, contrats de messages, DTO).
         'src/application/ports/**',
         'src/application/messages.ts',

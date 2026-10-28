@@ -40,7 +40,7 @@ export class InMemoryOutboxStore implements OutboxStore {
     return ready.map((m) => {
       m.attempts += 1
       m.lockedUntil = new Date(now.getTime() + leaseSeconds * 1000)
-      return { message: m.message, attempts: m.attempts, correlationId: null }
+      return { message: m.message, attempts: m.attempts, correlationId: null, traceparent: null }
     })
   }
 

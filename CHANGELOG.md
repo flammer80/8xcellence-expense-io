@@ -5,6 +5,17 @@ Les identifiants (SEC-xx, ARC-xx…) renvoient à `docs/audit/audit-v2.md`.
 
 ## Non publié
 
+### Observabilité (ADR 0011) — contrat 2.1.0 (MINOR)
+
+- **Nouveau** : `GET /api/health/live` (200 tant que le process répond) et `GET /api/health/ready` (200 si Postgres et S3 répondent, sinon **503** `application/problem+json` avec `checks: { postgres, storage }`). Sans authentification.
+- **`X-Correlation-Id`** est désormais renvoyé par **toutes** les routes de l'API et par les pages (posé par `proxy.ts`), et plus seulement par celles qui modifient l'état. Un id fourni par le client reste repris s'il est acceptable.
+- **Logs** : une ligne JSON par événement (pino), avec `trace_id`, `span_id` et `correlation_id`, au lieu de texte libre. Le format des lignes écrites sur la sortie standard change donc ; les réponses HTTP ne changent pas.
+- **Schéma** : la migration `1700000000007_observability.sql` ajoute `outbox.traceparent` et la fonction `app_pending_notes_by_age` (compteurs agrégés pour le rôle `expense_worker`).
+
+### Outillage
+
+- **Couverture** : `npm run test:coverage`, seuils par couche appliqués en CI (ADR 0010).
+
 ### Sécurité — changements volontaires de comportement
 
 Ces comportements étaient eux-mêmes des failles : ils sont corrigés malgré la règle « ne pas casser le comportement observable » (`CLAUDE.md` §9).

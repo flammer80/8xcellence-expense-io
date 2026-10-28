@@ -1,0 +1,227 @@
+# Généré par observability/generate.mjs — ne pas modifier à la main (ADR 0011).
+# Règles d'alerte d'Expense.io, évaluées par Grafana sur les métriques
+# Prometheus. Sans trafic, une règle reste « OK » (noDataState).
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: expense-io
+    folder: Expense.io
+    interval: 1m
+    rules:
+      - uid: expense-io-5xx-rate
+        title: "Taux de 5xx supérieur à 2 %"
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: critical
+          service: expense-io
+        annotations:
+          summary: "Plus de 2 % des requêtes API échouent en 500 depuis 5 minutes."
+          runbook: "Tableau « Expense.io — API », panneau des erreurs ; ouvrir la trace d’un log `unexpected-error`."
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 900, to: 0 }
+            model:
+              refId: A
+              instant: true
+              expr: "sum(rate(http_route_duration_seconds_count{service_name=\"expense-io\", http_response_status_code=~\"5..\"}[5m])) / sum(rate(http_route_duration_seconds_count{service_name=\"expense-io\"}[5m]))"
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [0.02] }
+      - uid: expense-io-p95-latency
+        title: "Latence p95 supérieure à 1 s"
+        condition: C
+        for: 10m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+          service: expense-io
+        annotations:
+          summary: "Le 95e centile des requêtes API dépasse 1 seconde depuis 10 minutes."
+          runbook: "Latence p95 par route, puis pool Postgres (`waiting`) et appels S3."
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 900, to: 0 }
+            model:
+              refId: A
+              instant: true
+              expr: "histogram_quantile(0.95, sum by (le) (rate(http_route_duration_seconds_bucket{service_name=\"expense-io\"}[5m])))"
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [1] }
+      - uid: expense-io-outbox-stuck
+        title: "Outbox bloquée (plus vieux message de plus de 5 min)"
+        condition: C
+        for: 2m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: critical
+          service: expense-io
+        annotations:
+          summary: "Un message attend depuis plus de 5 minutes : notifications et OCR ne sont plus traités."
+          runbook: "Vérifier que le worker tourne (OUTBOX_WORKER, logs `outbox-worker`) et la connexion du rôle expense_worker."
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 900, to: 0 }
+            model:
+              refId: A
+              instant: true
+              expr: "max(outbox_oldest_pending_age_seconds{service_name=\"expense-io\"})"
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [300] }
+      - uid: expense-io-dead-letter
+        title: "Nouvelle lettre morte dans l’outbox"
+        condition: C
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+          service: expense-io
+        annotations:
+          summary: "Un message a épuisé ses tentatives et attend un traitement manuel."
+          runbook: "SELECT type, last_error FROM outbox WHERE dead_at IS NOT NULL ORDER BY dead_at DESC (rôle propriétaire)."
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 900, to: 0 }
+            model:
+              refId: A
+              instant: true
+              expr: "max(outbox_dead_letters{service_name=\"expense-io\"}) - max(outbox_dead_letters{service_name=\"expense-io\"} offset 10m)"
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+      - uid: expense-io-forbidden-spike
+        title: "Pic de refus 403"
+        condition: C
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+          service: expense-io
+        annotations:
+          summary: "Plus de 20 refus 403 en 5 minutes : sondage d’identifiants (IDOR) ou régression d’autorisation."
+          runbook: "Loki : {service_name=\"expense-io\"} | event=\"forbidden\", regrouper par route."
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 900, to: 0 }
+            model:
+              refId: A
+              instant: true
+              expr: "sum(increase(http_forbidden_total{service_name=\"expense-io\"}[5m]))"
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [20] }
+      - uid: expense-io-login-failures-spike
+        title: "Pic de connexions refusées"
+        condition: C
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+          service: expense-io
+        annotations:
+          summary: "Plus de 20 connexions refusées en 5 minutes : force brute ou credential stuffing."
+          runbook: "Loki : {service_name=\"expense-io\"} | event=\"login-refused\", regrouper par emailHash."
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 900, to: 0 }
+            model:
+              refId: A
+              instant: true
+              expr: "sum(increase(auth_login_failures_total{service_name=\"expense-io\"}[5m]))"
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [20] }
+      - uid: expense-io-rate-limited
+        title: "Limite de tentatives atteinte"
+        condition: C
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: info
+          service: expense-io
+        annotations:
+          summary: "La limitation des tentatives (ADR 0009) a bloqué plus de 5 essais en 15 minutes."
+          runbook: "Loki : {service_name=\"expense-io\"} | security=\"true\" | reason=\"rate_limited\"."
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 900, to: 0 }
+            model:
+              refId: A
+              instant: true
+              expr: "sum(increase(auth_login_failures_total{service_name=\"expense-io\", reason=\"rate_limited\"}[15m])) + sum(increase(auth_signups_total{service_name=\"expense-io\", outcome=\"rate_limited\"}[15m]) or vector(0))"
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [5] }

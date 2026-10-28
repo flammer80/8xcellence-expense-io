@@ -1,19 +1,13 @@
-import { vi } from 'vitest'
 import { ownerPool } from './owner-pool'
 
 /**
  * Traite tous les messages disponibles de l'outbox avec le worker réel
  * (rôle `expense_worker`, consommateurs de `composition.ts`), comme le ferait
- * la boucle de fond. Ses logs JSON sont masqués.
+ * la boucle de fond (logs muets en test : `LOG_LEVEL=silent`).
  */
 export async function drainOutbox(): Promise<void> {
   const { outboxWorker } = await import('@/composition')
-  const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-  try {
-    await outboxWorker.drain()
-  } finally {
-    log.mockRestore()
-  }
+  await outboxWorker.drain()
 }
 
 export interface OutboxRow {
@@ -23,6 +17,7 @@ export interface OutboxRow {
   version: number
   payload: Record<string, unknown>
   correlation_id: string | null
+  traceparent: string | null
   attempts: number
   last_error: string | null
   processed_at: Date | null

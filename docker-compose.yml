@@ -35,6 +35,30 @@ services:
       timeout: 5s
       retries: 10
 
+  observability:
+    # Stack d'observabilité locale en un conteneur (ADR 0011) : collecteur
+    # OpenTelemetry (OTLP), Tempo (traces), Loki (logs), Prometheus
+    # (métriques) et Grafana. Épinglée : pas de `:latest`.
+    image: grafana/otel-lgtm:0.37.0
+    restart: unless-stopped
+    ports:
+      - '3001:3000' # Grafana (le port 3000 est celui de Next.js)
+      - '4317:4317' # OTLP gRPC
+      - '4318:4318' # OTLP HTTP (utilisé par l'application)
+    volumes:
+      # Tableaux de bord et alertes versionnés, provisionnés au démarrage.
+      - ./observability/grafana/dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/expense-io.yaml:ro
+      - ./observability/grafana/dashboards:/otel-lgtm/expense-io-dashboards:ro
+      - ./observability/grafana/alerting/expense-io.yaml:/otel-lgtm/grafana/conf/provisioning/alerting/expense-io.yaml:ro
+      - observability-data:/data
+    healthcheck:
+      # Le conteneur crée ce fichier quand tous ses composants sont prêts.
+      test: ['CMD-SHELL', 'test -f /tmp/ready']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
 volumes:
   postgres-data:
   localstack-data:
+  observability-data:

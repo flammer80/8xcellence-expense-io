@@ -1,5 +1,6 @@
 import path from 'node:path'
 import { createWorker } from 'tesseract.js'
+import { logger } from './logger'
 
 const SUPPORTED_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp']
 const TESSDATA_PATH = path.join(process.cwd(), 'tessdata')
@@ -174,7 +175,7 @@ export async function suggestFields(receipt: {
   try {
     return await recognizeReceipt(receipt)
   } catch (error) {
-    console.error('[ocr] Extraction échouée, suggestion vide renvoyée', error)
+    logger.warn({ err: error, event: 'ocr-failed' }, 'Extraction échouée, suggestion vide renvoyée')
     return {}
   }
 }

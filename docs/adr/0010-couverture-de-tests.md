@@ -18,6 +18,7 @@ Après l'étape 6, le dépôt comptait 295 tests (domaine, cas d'usage, routes, 
 | --- | --- |
 | Pages et composants React | Relèvent de l'E2E (navigateur), pas d'un test Node. |
 | `instrumentation.ts`, `proxy.ts`, `app/api/auth/**` | Câblage du framework, sans logique propre. |
+| `infrastructure/observability/sdk.ts` | Démarrage du SDK OpenTelemetry, coupé en test et en CI ; vérifié sur la stack locale (ADR 0011). |
 | `application/ports/**`, `messages.ts`, `dto.ts`, `types/` | Types uniquement : aucune instruction exécutable. |
 | `lib/storage.ts` | Enveloppe fine du SDK AWS. Elle est simulée en intégration, faute de S3 en CI, et vérifiée sur LocalStack par `make dev`. |
 

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { UserRole } from '@/domain/User'
 import { currentCorrelationId } from '@/lib/correlation'
 import { getPool } from '@/lib/db'
+import { appMetrics } from '@/lib/telemetry'
 
 // Les accès à la base avant authentification. Aucun utilisateur n'est encore
 // connu, donc aucune policy RLS ne peut filtrer : ils passent par des
@@ -81,7 +82,9 @@ export async function registerUser(input: {
  */
 export async function verifyEmail(token: string): Promise<boolean> {
   const result = await getPool().query<{ verified: boolean }>('SELECT app_verify_email($1) AS verified', [token])
-  return result.rows[0].verified
+  const verified = result.rows[0].verified
+  appMetrics().emailVerifications.add(1, { outcome: verified ? 'verified' : 'invalid_or_expired' })
+  return verified
 }
 
 /**

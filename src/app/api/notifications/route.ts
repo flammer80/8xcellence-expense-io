@@ -2,11 +2,12 @@ import { listMyNotifications } from '@/composition'
 import { auth } from '@/lib/auth'
 import { toNotificationDto } from '@/interface/http/mappers'
 import { problemFromError, unauthenticated } from '@/interface/http/problemDetails'
+import { traced } from '@/interface/http/correlation'
 
 const INSTANCE = '/api/notifications'
 
 // Contrat : docs/api/openapi.yaml (operationId listMyNotifications), ADR 0007.
-export async function GET() {
+export const GET = traced(async function GET() {
   try {
     const session = await auth()
     if (!session?.user) return unauthenticated(INSTANCE)
@@ -16,4 +17,4 @@ export async function GET() {
   } catch (error) {
     return problemFromError(error, INSTANCE)
   }
-}
+})
