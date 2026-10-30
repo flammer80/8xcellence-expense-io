@@ -7,6 +7,25 @@ export interface ClaimedMessage {
   attempts: number
   /** Id de corrélation de la requête HTTP d'origine, pour les logs. */
   correlationId: string | null
+  /**
+   * Contexte de trace W3C (`traceparent`) de la requête d'origine : le
+   * traitement du message s'inscrit dans la même trace (ADR 0011).
+   */
+  traceparent: string | null
+}
+
+/** Issue du traitement d'un message par le worker. */
+export type MessageOutcome = 'processed' | 'acked-without-consumer' | 'retry-scheduled' | 'dead-letter'
+
+/**
+ * Observe le traitement de chaque message (traces, métriques), sans que le
+ * worker connaisse l'outil utilisé. `process` doit être appelé une fois ;
+ * les logs émis pendant son exécution appartiennent au contexte observé.
+ *
+ * Implémentation : `OpenTelemetryMessageObserver` (infrastructure).
+ */
+export interface MessageObserver {
+  observe(claimed: ClaimedMessage, process: () => Promise<MessageOutcome>): Promise<MessageOutcome>
 }
 
 /**

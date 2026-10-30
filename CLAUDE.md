@@ -558,6 +558,8 @@ L'objectif : ajouter une fonctionnalité doit être **mécanique et sûr**, en 1
 - [x] Étape 4 — Schéma et soumission (rôle `expense_app` + RLS par entreprise, `company_id`/`currency`/`updated_at`/`citext`/index, `SubmitExpenseNote` atomique avec clé UUID et vérification des magic bytes, cf. ADR 0005 et 0006)
 - [x] Étape 5 — Asynchrone unifié (table `outbox` comme file unique, worker maison `SKIP LOCKED` lancé avec le serveur, rôle `expense_worker`, notifications de décision, OCR en 202 + polling avec worker Tesseract partagé, cf. ADR 0007)
 - [x] Étape 6 — Contrat et front (DTO partagés en `import type`, zod, RFC 9457 partout, `receiptKey` retiré → OpenAPI 2.0.0, routes `/api/expense-notes/pending` et `/api/users`, `AdminConsole` découpé, 0 `eslint-disable`, onboarding domaine pro + vérification d'email via l'outbox + limitation des tentatives, cf. ADR 0008 et 0009)
+- [x] Couverture mesurée, seuils par couche en CI (`npm run test:coverage`, cf. ADR 0010)
+- [x] Observabilité (OpenTelemetry → stack locale `grafana/otel-lgtm`, logs pino avec trace_id/correlation_id, 0 `console.*`, sondes `/api/health/live|ready`, 3 tableaux de bord et 7 alertes versionnés, cf. ADR 0011)
 - [ ] `HOW_TO_ADD_A_FEATURE.md` prêt pour le live coding
 
 ---

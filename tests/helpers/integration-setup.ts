@@ -18,6 +18,7 @@ vi.mock('@/lib/storage', async (importOriginal) => ({
   downloadReceipt: vi.fn(async () => Buffer.from([0x89, 0x50, 0x4e, 0x47])),
   deleteReceipt: vi.fn(async () => {}),
   getReceiptUrl: vi.fn(async (key: string) => `https://s3.test/${key}?signed`),
+  pingStorage: vi.fn(async () => {}),
 }))
 vi.mock('@/lib/ocr', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/ocr')>()),

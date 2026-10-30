@@ -6,6 +6,7 @@ import {
   NotFoundError,
 } from '@/domain/errors'
 import { currentCorrelationId } from '@/lib/correlation'
+import { logUnexpectedError } from '@/lib/logger'
 
 // Erreurs au format RFC 9457 (Problem Details), pour toutes les routes du
 // contrat (docs/api/openapi.yaml, ADR 0004 et 0008). Seules les anciennes
@@ -30,6 +31,8 @@ export interface ProblemDetails {
   correlationId?: string
   /** Message historique des routes qui renvoyaient `{ error }` (membre d'extension, déprécié). */
   error?: string
+  /** État de chaque dépendance, sur le 503 de `GET /api/health/ready`. */
+  checks?: Record<string, 'up' | 'down'>
 }
 
 export function problem(
@@ -73,7 +76,7 @@ export function problemFromError(error: unknown, instance: string): Response {
     })
   }
   const correlationId = currentCorrelationId() ?? randomUUID()
-  console.error(`[error] correlationId=${correlationId}`, error)
+  logUnexpectedError(error, correlationId)
   return problem(500, 'internal', 'Erreur interne', { instance, correlationId })
 }
 
@@ -103,6 +106,6 @@ export function legacyCompatibleProblem(error: unknown, instance: string): Respo
     })
   }
   const correlationId = currentCorrelationId() ?? randomUUID()
-  console.error(`[error] correlationId=${correlationId}`, error)
+  logUnexpectedError(error, correlationId)
   return problem(500, 'internal', 'Erreur interne', { instance, correlationId, error: 'Internal Server Error' })
 }

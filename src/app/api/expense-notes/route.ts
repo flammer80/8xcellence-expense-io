@@ -13,7 +13,7 @@ const INSTANCE = '/api/expense-notes'
 // submitExpenseNote). Erreurs RFC 9457 avec le membre historique `error` et
 // les codes d'origine (ADR 0008).
 
-export async function GET(request: NextRequest) {
+export const GET = traced(async function GET(request: NextRequest) {
   try {
     const session = await auth()
     if (!session?.user) return unauthenticated(INSTANCE, { error: 'Unauthorized' })
@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     return legacyCompatibleProblem(error, INSTANCE)
   }
-}
+})
 
 export const POST = traced(async function POST(request: NextRequest) {
   try {

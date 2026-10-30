@@ -1,0 +1,13 @@
+# Provisionnement des tableaux de bord d'Expense.io (ADR 0011) : les fichiers
+# JSON de `observability/grafana/dashboards/` sont chargés au démarrage de
+# Grafana, dans le dossier « Expense.io ». Modifiés dans l'interface, ils
+# doivent être réexportés ici pour être conservés.
+apiVersion: 1
+providers:
+  - name: expense-io
+    folder: Expense.io
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /otel-lgtm/expense-io-dashboards

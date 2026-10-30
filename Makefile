@@ -27,7 +27,7 @@ env: ## Crée .env depuis .env.example si absent, génère AUTH_SECRET si besoin
 		echo ".env mis à jour : rôle du worker de l'outbox (WORKER_DATABASE_URL)"; \
 	fi
 
-up: env ## Démarre Postgres + LocalStack (Docker) et attend qu'ils soient prêts
+up: env ## Démarre Postgres, LocalStack et la stack d'observabilité (Docker) ; attend Postgres et LocalStack
 	$(COMPOSE) up -d
 	@echo "En attente que Postgres et LocalStack soient opérationnels..."
 	@for i in $$(seq 1 30); do \
@@ -38,7 +38,13 @@ up: env ## Démarre Postgres + LocalStack (Docker) et attend qu'ils soient prêt
 	done; \
 	echo "Timeout en attendant Postgres/LocalStack — vérifie 'docker compose ps' et 'make logs'." >&2; exit 1
 
-down: ## Arrête Postgres + LocalStack (conserve les données)
+# La stack d'observabilité n'est pas attendue : l'application démarre et
+# fonctionne sans elle (ADR 0011). Grafana : http://localhost:3001
+
+observability-config: ## Régénère les tableaux de bord et alertes Grafana (observability/generate.mjs)
+	node observability/generate.mjs
+
+down: ## Arrête Postgres, LocalStack et l'observabilité (conserve les données)
 	$(COMPOSE) down
 
 restart: down up ## Redémarre Postgres + LocalStack

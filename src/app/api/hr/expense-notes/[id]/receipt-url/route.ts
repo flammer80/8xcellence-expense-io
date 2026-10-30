@@ -1,10 +1,11 @@
 import { getReceiptUrl } from '@/composition'
 import { auth } from '@/lib/auth'
 import { deprecated, legacyErrorResponse, requireRole } from '@/interface/http/legacyRoutes'
+import { traced } from '@/interface/http/correlation'
 
 // Déprécié : adaptateur fin vers GetReceiptUrl, remplacé par
 // GET /api/expense-notes/{id}/receipt-url (ADR 0004). Codes historiques conservés.
-export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+export const GET = traced(async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const successor = `/api/expense-notes/${id}/receipt-url`
   try {
@@ -16,4 +17,4 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   } catch (error) {
     return deprecated(legacyErrorResponse(error), successor)
   }
-}
+})

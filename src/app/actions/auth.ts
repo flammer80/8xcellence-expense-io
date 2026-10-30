@@ -12,6 +12,8 @@ import {
 } from '@/infrastructure/postgres/accounts'
 import { LOGIN_ERROR_MESSAGES, SIGNUP_RATE_LIMIT } from '@/interface/auth/credentials'
 import { signIn, signOut } from '@/lib/auth'
+import { emailFingerprint, logSecurityEvent } from '@/lib/logger'
+import { appMetrics } from '@/lib/telemetry'
 
 export interface AuthFormState {
   error?: string
@@ -47,6 +49,7 @@ export async function signup(_prevState: AuthFormState, formData: FormData): Pro
     }
   }
   if (!isProfessionalEmail(email)) {
+    recordSignup('refused_public_domain', email)
     return { error: 'Utilise ton adresse professionnelle : les messageries grand public ne sont pas acceptées.' }
   }
 
@@ -55,7 +58,10 @@ export async function signup(_prevState: AuthFormState, formData: FormData): Pro
     SIGNUP_RATE_LIMIT.max,
     SIGNUP_RATE_LIMIT.windowSeconds
   )
-  if (!allowed) return { error: 'Trop de tentatives. Réessaie plus tard.' }
+  if (!allowed) {
+    recordSignup('rate_limited', email)
+    return { error: 'Trop de tentatives. Réessaie plus tard.' }
+  }
 
   // Compte, entreprise, jeton et message de vérification : une transaction
   // (`app_register_user`, migration 0006).
@@ -68,9 +74,13 @@ export async function signup(_prevState: AuthFormState, formData: FormData): Pro
       verificationToken: randomBytes(32).toString('base64url'),
     })
   } catch (error) {
-    if (error instanceof EmailAlreadyRegisteredError) return { error: error.message }
+    if (error instanceof EmailAlreadyRegisteredError) {
+      recordSignup('already_registered', email)
+      return { error: error.message }
+    }
     throw error
   }
+  recordSignup('created', email)
   return { notice: `Compte créé. Un lien de confirmation a été envoyé à ${email} : clique dessus, puis connecte-toi.` }
 }
 
@@ -102,4 +112,13 @@ export async function logout(): Promise<void> {
 async function clientIp(): Promise<string> {
   const forwarded = (await headers()).get('x-forwarded-for')
   return forwarded?.split(',')[0]?.trim() || 'unknown'
+}
+
+/**
+ * Inscription, par résultat (métrique `auth.signups`). Un refus est aussi un
+ * événement de sécurité, avec l'empreinte de l'email et jamais l'adresse.
+ */
+function recordSignup(outcome: string, email: string): void {
+  appMetrics().signups.add(1, { outcome })
+  if (outcome !== 'created') logSecurityEvent('signup-refused', { reason: outcome, emailHash: emailFingerprint(email) })
 }

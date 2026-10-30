@@ -45,7 +45,10 @@ const APPLICATION_DEPENDS_ON_PORTS = {
               "La couche application ne connaît que le domaine et ses ports : passez par une interface de `application/ports/`.",
           },
           {
-            group: ["next", "next/*", "next-auth", "next-auth/*", "pg", "@aws-sdk/*", "tesseract.js", "react"],
+            group: [
+              "next", "next/*", "next-auth", "next-auth/*", "pg", "@aws-sdk/*", "tesseract.js", "react",
+              "@opentelemetry/*", "pino",
+            ],
             message:
               "La couche application ne dépend d'aucun framework ni driver : l'implémentation va dans `infrastructure/`.",
           },
@@ -55,11 +58,20 @@ const APPLICATION_DEPENDS_ON_PORTS = {
   },
 };
 
+// Observabilité (docs/adr/0011-observabilite.md) : tout le code passe par le logger
+// structuré (`src/lib/logger.ts`), qui ajoute trace_id et correlation_id et
+// masque les secrets. Un `console.*` échapperait aux deux.
+const NO_CONSOLE_IN_SERVER_CODE = {
+  files: ["src/**/*.{ts,tsx}"],
+  rules: { "no-console": "error" },
+};
+
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
   DOMAIN_IS_PURE,
   APPLICATION_DEPENDS_ON_PORTS,
+  NO_CONSOLE_IN_SERVER_CODE,
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:
@@ -67,6 +79,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Rapport généré par `npm run test:coverage`.
+    "coverage/**",
   ]),
 ]);
 

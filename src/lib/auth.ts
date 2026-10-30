@@ -1,9 +1,12 @@
+import { trace } from '@opentelemetry/api'
 import NextAuth, { CredentialsSignin } from 'next-auth'
 import Credentials from 'next-auth/providers/credentials'
 import bcrypt from 'bcryptjs'
 import type { UserRole } from '@/domain/User'
 import { consumeAuthAttempt, findCredentialsByEmail } from '@/infrastructure/postgres/accounts'
 import { authorizeCredentials } from '@/interface/auth/credentials'
+import { emailFingerprint, logSecurityEvent } from './logger'
+import { appMetrics } from './telemetry'
 
 // Valeurs à ne jamais accepter comme secret de signature : celle d'exemple de
 // .env.example, et l'ancien secret qui était versionné dans ce fichier
@@ -55,6 +58,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           { findCredentialsByEmail, consumeAuthAttempt, comparePassword: bcrypt.compare }
         )
         if (result.ok) return result.user
+        appMetrics().loginFailures.add(1, { reason: result.reason })
+        logSecurityEvent('login-refused', {
+          reason: result.reason,
+          emailHash: typeof credentials?.email === 'string' ? emailFingerprint(credentials.email) : null,
+        })
         // Le code remonte jusqu'à l'action `login`, qui choisit le message.
         throw new LoginRefused(result.reason)
       },
@@ -72,6 +80,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (session.user) {
         session.user.id = token.id as string
         session.user.role = token.role as UserRole
+        // Qui agit, sur le span de la requête en cours : identifiant et rôle, sans email.
+        trace.getActiveSpan()?.setAttributes({ 'enduser.id': session.user.id, 'enduser.role': session.user.role })
       }
       return session
     },

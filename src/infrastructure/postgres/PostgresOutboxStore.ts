@@ -9,6 +9,7 @@ interface OutboxRow {
   version: number
   payload: unknown
   correlation_id: string | null
+  traceparent: string | null
   occurred_at: Date
   attempts: number
 }
@@ -34,7 +35,7 @@ export class PostgresOutboxStore implements OutboxStore {
          LIMIT $1
          FOR UPDATE SKIP LOCKED
        )
-       RETURNING id, company_id, type, version, payload, correlation_id, occurred_at, attempts`,
+       RETURNING id, company_id, type, version, payload, correlation_id, traceparent, occurred_at, attempts`,
       [limit, leaseSeconds]
     )
     return result.rows
@@ -50,6 +51,7 @@ export class PostgresOutboxStore implements OutboxStore {
         } as OutboxMessage,
         attempts: row.attempts,
         correlationId: row.correlation_id,
+        traceparent: row.traceparent,
       }))
   }
 

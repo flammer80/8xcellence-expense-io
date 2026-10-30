@@ -1,5 +1,5 @@
 import type { OutboxMessage, OutboxMessageType } from './messages'
-import type { ClaimedMessage, OutboxStore } from './ports/OutboxStore'
+import type { ClaimedMessage, MessageObserver, MessageOutcome, OutboxStore } from './ports/OutboxStore'
 
 /** Consommateur d'un type de message. Doit être idempotent : un message peut être livré plusieurs fois. */
 export interface MessageHandler<M extends OutboxMessage> {
@@ -41,7 +41,10 @@ export const DEFAULT_OUTBOX_WORKER_OPTIONS: OutboxWorkerOptions = {
 
 export type WorkerLog = (entry: Record<string, unknown>) => void
 
-const consoleLog: WorkerLog = (entry) => console.log(JSON.stringify({ component: 'outbox-worker', ...entry }))
+/** Par défaut, rien n'est journalisé : la racine de composition branche le logger. */
+const silent: WorkerLog = () => {}
+
+const passthrough: MessageObserver = { observe: (_claimed, process) => process() }
 
 /**
  * Worker unique de l'asynchrone (ADR 0007) : réclame les messages de
@@ -65,15 +68,16 @@ export class OutboxWorker {
     private readonly store: OutboxStore,
     private readonly handlers: MessageHandlers,
     private readonly options: OutboxWorkerOptions = DEFAULT_OUTBOX_WORKER_OPTIONS,
-    private readonly log: WorkerLog = consoleLog,
-    private readonly now: () => Date = () => new Date()
+    private readonly log: WorkerLog = silent,
+    private readonly now: () => Date = () => new Date(),
+    private readonly observer: MessageObserver = passthrough
   ) {}
 
   /** Traite un lot de messages disponibles. @returns le nombre de messages réclamés. */
   async processBatch(): Promise<number> {
     const claimed = await this.store.claim(this.options.batchSize, this.options.leaseSeconds)
     for (const item of claimed) {
-      await this.process(item)
+      await this.observer.observe(item, () => this.process(item))
     }
     return claimed.length
   }
@@ -108,28 +112,29 @@ export class OutboxWorker {
     this.timer = null
   }
 
-  private async process({ message, attempts, correlationId }: ClaimedMessage): Promise<void> {
+  private async process({ message, attempts, correlationId }: ClaimedMessage): Promise<MessageOutcome> {
     const context = { messageId: message.id, type: message.type, version: message.version, attempts, correlationId }
 
     if (message.version !== SUPPORTED_VERSION[message.type]) {
       await this.store.bury(message.id, `version ${message.version} non supportée`)
       this.log({ level: 'error', event: 'dead-letter', reason: 'unsupported-version', ...context })
-      return
+      return 'dead-letter'
     }
 
     const handler = this.handlers[message.type] as MessageHandler<OutboxMessage> | undefined
     if (!handler) {
       await this.store.ack(message.id)
       this.log({ level: 'info', event: 'acked-without-consumer', ...context })
-      return
+      return 'acked-without-consumer'
     }
 
     try {
       await handler.handle(message)
       await this.store.ack(message.id)
       this.log({ level: 'info', event: 'processed', ...context })
+      return 'processed'
     } catch (error) {
-      await this.fail(message, attempts, error, handler, context)
+      return this.fail(message, attempts, error, handler, context)
     }
   }
 
@@ -139,13 +144,13 @@ export class OutboxWorker {
     error: unknown,
     handler: MessageHandler<OutboxMessage>,
     context: Record<string, unknown>
-  ): Promise<void> {
+  ): Promise<MessageOutcome> {
     const reason = describe(error)
     if (attempts < this.options.maxAttempts) {
       const availableAt = new Date(this.now().getTime() + this.options.retryDelayMs(attempts))
       await this.store.retry(message.id, reason, availableAt)
       this.log({ level: 'warn', event: 'retry-scheduled', error: reason, availableAt, ...context })
-      return
+      return 'retry-scheduled'
     }
     await this.store.bury(message.id, reason)
     this.log({ level: 'error', event: 'dead-letter', error: reason, ...context })
@@ -154,6 +159,7 @@ export class OutboxWorker {
     } catch (deadLetterError) {
       this.log({ level: 'error', event: 'dead-letter-hook-failed', error: describe(deadLetterError), ...context })
     }
+    return 'dead-letter'
   }
 }
 

@@ -1,3 +1,4 @@
+import { context, propagation } from '@opentelemetry/api'
 import type { PoolClient } from 'pg'
 import type { OutboxMessage } from '@/application/messages'
 import { currentCorrelationId } from '@/lib/correlation'
@@ -10,10 +11,11 @@ import { currentCorrelationId } from '@/lib/correlation'
  */
 export async function insertOutboxMessages(client: PoolClient, messages: OutboxMessage[]): Promise<void> {
   const correlationId = currentCorrelationId() ?? null
+  const traceparent = currentTraceparent()
   for (const message of messages) {
     await client.query(
-      `INSERT INTO outbox (id, company_id, type, version, payload, correlation_id, occurred_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      `INSERT INTO outbox (id, company_id, type, version, payload, correlation_id, traceparent, occurred_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [
         message.id,
         message.companyId,
@@ -21,8 +23,16 @@ export async function insertOutboxMessages(client: PoolClient, messages: OutboxM
         message.version,
         JSON.stringify(message.payload),
         correlationId,
+        traceparent,
         message.occurredAt,
       ]
     )
   }
+}
+
+/** Contexte de trace W3C courant (`traceparent`), ou `null` hors trace. */
+function currentTraceparent(): string | null {
+  const carrier: Record<string, string> = {}
+  propagation.inject(context.active(), carrier)
+  return carrier.traceparent ?? null
 }
